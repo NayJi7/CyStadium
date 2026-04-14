@@ -1,1 +1,29 @@
-docs/*
+# ── Secrets ──────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Scala / sbt ──────────────────────────────────────────────────────────────
+target/
+project/target/
+project/project/
+.bsp/
+.metals/
+.scala-build/
+*.class
+
+# ── Node / Next.js ───────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.pnpm-store/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+docs/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
