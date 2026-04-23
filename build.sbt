@@ -34,7 +34,3 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-testkit"     % akkaVersion % Test,
   "com.typesafe.akka" %% "akka-http-testkit"% akkaHttpVersion % Test,
 )
-
-// Nécessaire pour circe-generic-extras
-addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.full)
-scalacOptions += "-Ymacro-annotations"

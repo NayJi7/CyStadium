@@ -1,0 +1,364 @@
+package cystadium.actors
+
+import akka.actor.{Actor, ActorLogging, ActorRef, Cancellable, Props, ReceiveTimeout, Status}
+import cystadium.actors.SeatAllocator.{AllocateSeats, AllocationFailed, AllocationSucceeded}
+import cystadium.protocol._
+
+import java.time.Instant
+import java.util.UUID
+import scala.concurrent.duration._
+
+object ReservationHandler {
+  def props(
+      sessionManager: ActorRef,
+      seatAllocator: ActorRef,
+      seatRefResolver: SeatRefResolver,
+      reservationTtl: FiniteDuration = 10.minutes,
+      responseTimeout: FiniteDuration = 5.seconds,
+      pricing: Zone => Double = DefaultPricing.priceOf
+  ): Props =
+    Props(new ReservationHandler(sessionManager, seatAllocator, seatRefResolver, reservationTtl, responseTimeout, pricing))
+
+  trait SeatRefResolver {
+    def resolve(matchId: MatchId, zone: Zone, seatIds: Set[SeatId]): Map[SeatId, ActorRef]
+  }
+
+  object DefaultPricing {
+    def priceOf(zone: Zone): Double =
+      zone match {
+        case VIP       => 500.0
+        case Or        => 250.0
+        case Standard  => 100.0
+        case Populaire => 50.0
+      }
+  }
+
+  private sealed trait ReservationStatus
+  private case object Pending extends ReservationStatus
+  private case object ConfirmedStatus extends ReservationStatus
+  private case object CancelledStatus extends ReservationStatus
+
+  private final case class ReservationRecord(
+      reservationId: ReservationId,
+      bookingId: BookingId,
+      clientId: ClientId,
+      matchId: MatchId,
+      zone: Zone,
+      seatRefs: Map[SeatId, ActorRef],
+      total: Double,
+      expiresAt: Instant,
+      status: ReservationStatus,
+      expirationTask: Option[Cancellable]
+  )
+
+  private final case class ReservationCreated(record: ReservationRecord, replyTo: ActorRef)
+  private final case class ReservationCreationRejected(conflictingSeats: Set[SeatId], replyTo: ActorRef)
+  private final case class ExpireReservation(reservationId: ReservationId)
+  private final case class FinalizationSucceeded(reservationId: ReservationId, replyTo: ActorRef, action: FinalizationAction)
+  private final case class FinalizationFailed(reservationId: ReservationId, replyTo: ActorRef, reason: String)
+
+  private sealed trait FinalizationAction
+  private case object ConfirmAction extends FinalizationAction
+  private case object ReleaseAction extends FinalizationAction
+
+  private object ReservationCreationSession {
+    def props(
+        request: ReserveSeats,
+        replyTo: ActorRef,
+        parent: ActorRef,
+        sessionManager: ActorRef,
+        seatAllocator: ActorRef,
+        seatRefResolver: SeatRefResolver,
+        reservationTtl: FiniteDuration,
+        responseTimeout: FiniteDuration,
+        pricing: Zone => Double
+    ): Props =
+      Props(
+        new ReservationCreationSession(
+          request,
+          replyTo,
+          parent,
+          sessionManager,
+          seatAllocator,
+          seatRefResolver,
+          reservationTtl,
+          responseTimeout,
+          pricing
+        )
+      )
+  }
+
+  private final class ReservationCreationSession(
+      request: ReserveSeats,
+      replyTo: ActorRef,
+      parent: ActorRef,
+      sessionManager: ActorRef,
+      seatAllocator: ActorRef,
+      seatRefResolver: SeatRefResolver,
+      reservationTtl: FiniteDuration,
+      responseTimeout: FiniteDuration,
+      pricing: Zone => Double
+  ) extends Actor
+      with ActorLogging {
+
+    private val reservationId = UUID.randomUUID()
+    private val bookingId = UUID.randomUUID()
+    private val expiresAt = Instant.now().plusMillis(reservationTtl.toMillis)
+    private var clientId: Option[ClientId] = None
+    private var resolvedSeatRefs: Map[SeatId, ActorRef] = Map.empty
+
+    override def preStart(): Unit = {
+      context.setReceiveTimeout(responseTimeout)
+      sessionManager ! ValidateSession(request.sessionId)
+    }
+
+    override def receive: Receive = validatingSession
+
+    private def validatingSession: Receive = {
+      case SessionValid(validClientId) =>
+        clientId = Some(validClientId)
+        resolvedSeatRefs = seatRefResolver.resolve(request.matchId, request.zone, request.seatIds)
+
+        val missingSeats = request.seatIds.diff(resolvedSeatRefs.keySet)
+        if (request.seatIds.isEmpty || missingSeats.nonEmpty) {
+          parent ! ReservationCreationRejected(missingSeats, replyTo)
+          context.stop(self)
+        } else {
+          seatAllocator ! AllocateSeats(
+            matchId = request.matchId,
+            zone = request.zone,
+            clientId = validClientId,
+            bookingId = bookingId,
+            seatRefs = resolvedSeatRefs,
+            deadline = expiresAt
+          )
+          context.become(allocatingSeats)
+        }
+
+      case SessionInvalid | SessionExpired(_) =>
+        parent ! ReservationCreationRejected(Set.empty, replyTo)
+        context.stop(self)
+
+      case ReceiveTimeout =>
+        parent ! ReservationCreationRejected(Set.empty, replyTo)
+        context.stop(self)
+    }
+
+    private def allocatingSeats: Receive = {
+      case AllocationSucceeded(_, _, succeededBookingId, seatIds) if succeededBookingId == bookingId =>
+        val total = seatIds.size * pricing(request.zone)
+        val record = ReservationRecord(
+          reservationId = reservationId,
+          bookingId = bookingId,
+          clientId = clientId.get,
+          matchId = request.matchId,
+          zone = request.zone,
+          seatRefs = resolvedSeatRefs.filter { case (seatId, _) => seatIds.contains(seatId) },
+          total = total,
+          expiresAt = expiresAt,
+          status = Pending,
+          expirationTask = None
+        )
+        parent ! ReservationCreated(record, replyTo)
+        context.stop(self)
+
+      case AllocationFailed(_, _, failedBookingId, conflictingSeats, _) if failedBookingId == bookingId =>
+        parent ! ReservationCreationRejected(conflictingSeats, replyTo)
+        context.stop(self)
+
+      case ReceiveTimeout =>
+        parent ! ReservationCreationRejected(request.seatIds, replyTo)
+        context.stop(self)
+    }
+  }
+
+  private object ReservationFinalizationSession {
+    def props(
+        reservationId: ReservationId,
+        bookingId: BookingId,
+        seatRefs: Map[SeatId, ActorRef],
+        replyTo: ActorRef,
+        parent: ActorRef,
+        action: FinalizationAction,
+        responseTimeout: FiniteDuration
+    ): Props =
+      Props(new ReservationFinalizationSession(reservationId, bookingId, seatRefs, replyTo, parent, action, responseTimeout))
+  }
+
+  private final class ReservationFinalizationSession(
+      reservationId: ReservationId,
+      bookingId: BookingId,
+      seatRefs: Map[SeatId, ActorRef],
+      replyTo: ActorRef,
+      parent: ActorRef,
+      action: FinalizationAction,
+      responseTimeout: FiniteDuration
+  ) extends Actor
+      with ActorLogging {
+
+    private var pending: Set[SeatId] = seatRefs.keySet
+
+    override def preStart(): Unit = {
+      context.setReceiveTimeout(responseTimeout)
+
+      action match {
+        case ConfirmAction => seatRefs.values.foreach(_ ! ConfirmSeat(bookingId))
+        case ReleaseAction => seatRefs.values.foreach(_ ! ReleaseSeat(bookingId))
+      }
+
+      if (pending.isEmpty) {
+        parent ! FinalizationSucceeded(reservationId, replyTo, action)
+        context.stop(self)
+      }
+    }
+
+    override def receive: Receive = {
+      case SeatConfirmedOk(seatId) if action == ConfirmAction && pending.contains(seatId) =>
+        pending -= seatId
+        completeIfReady()
+
+      case SeatReleasedOk(seatId) if action == ReleaseAction && pending.contains(seatId) =>
+        pending -= seatId
+        completeIfReady()
+
+      case ReceiveTimeout =>
+        parent ! FinalizationFailed(reservationId, replyTo, "seat-finalization-timeout")
+        context.stop(self)
+    }
+
+    private def completeIfReady(): Unit =
+      if (pending.isEmpty) {
+        parent ! FinalizationSucceeded(reservationId, replyTo, action)
+        context.stop(self)
+      }
+  }
+}
+
+final class ReservationHandler(
+    sessionManager: ActorRef,
+    seatAllocator: ActorRef,
+    seatRefResolver: ReservationHandler.SeatRefResolver,
+    reservationTtl: FiniteDuration,
+    responseTimeout: FiniteDuration,
+    pricing: Zone => Double
+) extends Actor
+    with ActorLogging {
+
+  import ReservationHandler._
+  import context.dispatcher
+
+  private var reservations: Map[ReservationId, ReservationRecord] = Map.empty
+
+  override def receive: Receive = {
+    case request: ReserveSeats =>
+      context.actorOf(
+        ReservationCreationSession.props(
+          request = request,
+          replyTo = sender(),
+          parent = self,
+          sessionManager = sessionManager,
+          seatAllocator = seatAllocator,
+          seatRefResolver = seatRefResolver,
+          reservationTtl = reservationTtl,
+          responseTimeout = responseTimeout,
+          pricing = pricing
+        )
+      )
+
+    case ReservationCreated(record, replyTo) =>
+      val expirationTask = context.system.scheduler.scheduleOnce(reservationTtl, self, ExpireReservation(record.reservationId))
+      val persistedRecord = record.copy(expirationTask = Some(expirationTask))
+      reservations += record.reservationId -> persistedRecord
+      replyTo ! SeatsReserved(record.reservationId, record.seatRefs.keySet, record.total, record.expiresAt)
+
+    case ReservationCreationRejected(conflictingSeats, replyTo) =>
+      replyTo ! SeatsUnavailable(conflictingSeats)
+
+    case ConfirmReservation(reservationId) =>
+      reservations.get(reservationId) match {
+        case Some(record) if record.status == Pending =>
+          context.actorOf(
+            ReservationFinalizationSession.props(
+              reservationId = reservationId,
+              bookingId = record.bookingId,
+              seatRefs = record.seatRefs,
+              replyTo = sender(),
+              parent = self,
+              action = ConfirmAction,
+              responseTimeout = responseTimeout
+            )
+          )
+
+        case Some(record) if record.status == ConfirmedStatus =>
+          sender() ! ReservationConfirmed(reservationId, ticketCode(reservationId))
+
+        case Some(_) =>
+          sender() ! Status.Failure(new IllegalStateException(s"Reservation $reservationId cannot be confirmed"))
+
+        case None =>
+          sender() ! Status.Failure(new NoSuchElementException(s"Reservation $reservationId not found"))
+      }
+
+    case CancelReservation(reservationId, _) =>
+      reservations.get(reservationId) match {
+        case Some(record) if record.status == Pending =>
+          context.actorOf(
+            ReservationFinalizationSession.props(
+              reservationId = reservationId,
+              bookingId = record.bookingId,
+              seatRefs = record.seatRefs,
+              replyTo = sender(),
+              parent = self,
+              action = ReleaseAction,
+              responseTimeout = responseTimeout
+            )
+          )
+
+        case Some(record) if record.status == CancelledStatus =>
+          sender() ! SeatsReleased(reservationId)
+
+        case Some(_) =>
+          sender() ! Status.Failure(new IllegalStateException(s"Reservation $reservationId cannot be cancelled"))
+
+        case None =>
+          sender() ! Status.Failure(new NoSuchElementException(s"Reservation $reservationId not found"))
+      }
+
+    case ExpireReservation(reservationId) =>
+      reservations.get(reservationId).filter(_.status == Pending).foreach { record =>
+        context.actorOf(
+          ReservationFinalizationSession.props(
+            reservationId = reservationId,
+            bookingId = record.bookingId,
+            seatRefs = record.seatRefs,
+            replyTo = context.system.deadLetters,
+            parent = self,
+            action = ReleaseAction,
+            responseTimeout = responseTimeout
+          )
+        )
+      }
+
+    case FinalizationSucceeded(reservationId, replyTo, ConfirmAction) =>
+      reservations.get(reservationId).foreach { record =>
+        record.expirationTask.foreach(_.cancel())
+        reservations += reservationId -> record.copy(status = ConfirmedStatus, expirationTask = None)
+      }
+      replyTo ! ReservationConfirmed(reservationId, ticketCode(reservationId))
+
+    case FinalizationSucceeded(reservationId, replyTo, ReleaseAction) =>
+      reservations.get(reservationId).foreach { record =>
+        record.expirationTask.foreach(_.cancel())
+        reservations += reservationId -> record.copy(status = CancelledStatus, expirationTask = None)
+      }
+      if (replyTo != context.system.deadLetters) {
+        replyTo ! SeatsReleased(reservationId)
+      }
+
+    case FinalizationFailed(reservationId, replyTo, reason) =>
+      replyTo ! Status.Failure(new RuntimeException(s"Reservation $reservationId finalization failed: $reason"))
+  }
+
+  private def ticketCode(reservationId: ReservationId): String =
+    s"TICKET-${reservationId.toString.take(8).toUpperCase}"
+}

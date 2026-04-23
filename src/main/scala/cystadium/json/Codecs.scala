@@ -33,6 +33,14 @@ object Codecs {
     case Standard  => "Standard"
     case Populaire => "Populaire"
   }
+
+  implicit val zoneKeyEncoder: KeyEncoder[Zone] = {
+    case VIP       => "VIP"
+    case Or        => "Or"
+    case Standard  => "Standard"
+    case Populaire => "Populaire"
+  }
+
   implicit val zoneDecoder: Decoder[Zone] = Decoder.decodeString.emap {
     case "VIP"       => Right(VIP)
     case "Or"        => Right(Or)
