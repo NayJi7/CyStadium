@@ -31,8 +31,9 @@ libraryDependencies ++= Seq(
 
   // ── Tests ─────────────────────────────────────────────────────────────────
   "org.scalatest"     %% "scalatest"        % "3.2.18"   % Test,
-  "com.typesafe.akka" %% "akka-testkit"     % akkaVersion % Test,
-  "com.typesafe.akka" %% "akka-http-testkit"% akkaHttpVersion % Test,
+  "com.typesafe.akka" %% "akka-testkit"        % akkaVersion % Test,
+  "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test,
+  "com.typesafe.akka" %% "akka-http-testkit"   % akkaHttpVersion % Test,
 )
 
 // Nécessaire pour circe-generic-extras (macros @ConfiguredJsonCodec)

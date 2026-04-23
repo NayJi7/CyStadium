@@ -21,11 +21,13 @@ import scala.util.Try
 //   - exceptionHandler / rejectionHandler : erreurs uniformes en JSON
 // ─────────────────────────────────────────────────────────────────────────────
 
-class Routes(sessionManager: ActorRef, askTimeoutDuration: FiniteDuration) {
+class Routes(sessionManager: ActorRef, askTimeoutDuration: FiniteDuration)
+            (implicit system: akka.actor.ActorSystem) {
   implicit val askTimeout: Timeout = Timeout(askTimeoutDuration)
 
   private val authHelper = new AuthHelper(sessionManager)
   private val authRoutes = new AuthRoutes(sessionManager).routes
+  private val wsRoutes   = new WebSocketHandler(system).routes
 
   val exceptionHandler: ExceptionHandler = ExceptionHandler {
     case _: AskTimeoutException =>
@@ -48,9 +50,10 @@ class Routes(sessionManager: ActorRef, askTimeoutDuration: FiniteDuration) {
   val all: Route =
     handleExceptions(exceptionHandler) {
       handleRejections(rejectionHandler) {
-        pathPrefix("api") {
-          authRoutes
-        }
+        concat(
+          pathPrefix("api") { authRoutes },
+          pathPrefix("ws")  { wsRoutes }
+        )
       }
     }
 }
