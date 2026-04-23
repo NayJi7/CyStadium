@@ -21,7 +21,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
   private def newRoutes() = {
     val sm = system.actorOf(SessionManager.props(15.minutes))
-    new Routes(sm, 2.seconds).all
+    new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 2.seconds).all
   }
 
   "POST /api/auth/login" should {
@@ -65,7 +65,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   "Un login suivi d'un logout" should {
     "invalider la session (preuve via directive authenticated)" in {
       val sm        = system.actorOf(SessionManager.props(15.minutes))
-      val routesObj = new Routes(sm, 2.seconds)
+      val routesObj = new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 2.seconds)
       // Route de test qui exige un login
       val protectedRoute = akka.http.scaladsl.server.Directives.get {
         routesObj.authenticated { _ =>

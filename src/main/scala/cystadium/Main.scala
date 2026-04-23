@@ -29,7 +29,20 @@ object Main {
     val askTimeout    = toScala(config.getDuration("ask-timeout"))
 
     val sessionManager = system.actorOf(SessionManager.props(sessionTtl), "session-manager")
-    val routes         = new Routes(sessionManager, askTimeout).all
+
+    // Acteurs des autres équipes — pas encore créés, branchés via le Supervisor
+    // collectif. En attendant, `deadLetters` fait timeout → 503 service_unavailable.
+    val matchManager       = system.deadLetters
+    val reservationHandler = system.deadLetters
+    val paymentGateway     = system.deadLetters
+
+    val routes = new Routes(
+      sessionManager     = sessionManager,
+      matchManager       = matchManager,
+      reservationHandler = reservationHandler,
+      paymentGateway     = paymentGateway,
+      askTimeoutDuration = askTimeout
+    ).all
 
     Http().newServerAt(host, port).bind(routes).onComplete {
       case Success(b) =>

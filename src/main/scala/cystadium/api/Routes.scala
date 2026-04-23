@@ -21,13 +21,21 @@ import scala.util.Try
 //   - exceptionHandler / rejectionHandler : erreurs uniformes en JSON
 // ─────────────────────────────────────────────────────────────────────────────
 
-class Routes(sessionManager: ActorRef, askTimeoutDuration: FiniteDuration)
-            (implicit system: akka.actor.ActorSystem) {
+class Routes(
+  sessionManager:     ActorRef,
+  matchManager:       ActorRef,
+  reservationHandler: ActorRef,
+  paymentGateway:     ActorRef,
+  askTimeoutDuration: FiniteDuration
+)(implicit system: akka.actor.ActorSystem) {
   implicit val askTimeout: Timeout = Timeout(askTimeoutDuration)
 
-  private val authHelper = new AuthHelper(sessionManager)
-  private val authRoutes = new AuthRoutes(sessionManager).routes
-  private val wsRoutes   = new WebSocketHandler(system).routes
+  private val authHelper         = new AuthHelper(sessionManager)
+  private val authRoutes         = new AuthRoutes(sessionManager).routes
+  private val matchRoutes        = new MatchRoutes(matchManager).routes
+  private val reservationRoutes  =
+    new ReservationRoutes(reservationHandler, paymentGateway, authHelper.authenticated).routes
+  private val wsRoutes           = new WebSocketHandler(system).routes
 
   val exceptionHandler: ExceptionHandler = ExceptionHandler {
     case _: AskTimeoutException =>
@@ -51,8 +59,10 @@ class Routes(sessionManager: ActorRef, askTimeoutDuration: FiniteDuration)
     handleExceptions(exceptionHandler) {
       handleRejections(rejectionHandler) {
         concat(
-          pathPrefix("api") { authRoutes },
-          pathPrefix("ws")  { wsRoutes }
+          pathPrefix("api") {
+            concat(authRoutes, matchRoutes, reservationRoutes)
+          },
+          pathPrefix("ws") { wsRoutes }
         )
       }
     }
