@@ -339,7 +339,7 @@ export default function LoginPage() {
                       />
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <Input label="Nom complet" placeholder="Léa Martin" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
-                        <Input label="Email" type="email" placeholder="lea@cystadium.fr" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+                        <Input label="Email" type="email" placeholder="lea@gmail.fr" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
                       </div>
                       <PasswordField
                         label="Mot de passe"
