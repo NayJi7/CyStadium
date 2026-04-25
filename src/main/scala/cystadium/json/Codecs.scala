@@ -41,6 +41,20 @@ object Codecs {
     case other       => Left(s"Zone inconnue: $other")
   }
 
+  implicit val zoneKeyEncoder: KeyEncoder[Zone] = KeyEncoder.instance {
+    case VIP       => "vip"
+    case Or        => "or"
+    case Standard  => "standard"
+    case Populaire => "populaire"
+  }
+  implicit val zoneKeyDecoder: KeyDecoder[Zone] = KeyDecoder.instance {
+    case "vip"       => Some(VIP)
+    case "or"        => Some(Or)
+    case "standard"  => Some(Standard)
+    case "populaire" => Some(Populaire)
+    case _           => None
+  }
+
   // ── SeatStatus (WebSocket — version simplifiée) ───────────────────────────
   // Pour le WebSocket on n'expose que le label de statut, pas les détails internes.
   implicit val seatStatusEncoder: Encoder[SeatStatus] = Encoder.encodeString.contramap {
