@@ -29,6 +29,9 @@ libraryDependencies ++= Seq(
   // ── Config ────────────────────────────────────────────────────────────────
   "com.typesafe" % "config" % "1.4.3",
 
+  // ── Hash de mots de passe ─────────────────────────────────────────────────
+  "org.mindrot" % "jbcrypt" % "0.4",
+
   // ── Tests ─────────────────────────────────────────────────────────────────
   "org.scalatest"     %% "scalatest"        % "3.2.18"   % Test,
   "com.typesafe.akka" %% "akka-testkit"        % akkaVersion % Test,

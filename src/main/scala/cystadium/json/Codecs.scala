@@ -66,10 +66,15 @@ object Codecs {
   }
 
   // ── Messages REST ─────────────────────────────────────────────────────────
-  implicit val loginEncoder: Encoder[Login]               = deriveConfiguredEncoder
-  implicit val loginDecoder: Decoder[Login]               = deriveConfiguredDecoder
-  implicit val loginSuccessEncoder: Encoder[LoginSuccess] = deriveConfiguredEncoder
-  implicit val logoutDecoder: Decoder[Logout]             = deriveConfiguredDecoder
+  implicit val registerDecoder: Decoder[Register]                 = deriveConfiguredDecoder
+  implicit val registerSuccessEncoder: Encoder[RegisterSuccess]   = deriveConfiguredEncoder
+  implicit val registerFailedEncoder: Encoder[RegisterFailed]     = deriveConfiguredEncoder
+
+  implicit val loginEncoder: Encoder[Login]                       = deriveConfiguredEncoder
+  implicit val loginDecoder: Decoder[Login]                       = deriveConfiguredDecoder
+  implicit val loginSuccessEncoder: Encoder[LoginSuccess]         = deriveConfiguredEncoder
+  implicit val loginFailedEncoder: Encoder[LoginFailed]           = deriveConfiguredEncoder
+  implicit val logoutDecoder: Decoder[Logout]                     = deriveConfiguredDecoder
 
   implicit val reserveSeatsDecoder: Decoder[ReserveSeats]     = deriveConfiguredDecoder
   implicit val seatsReservedEncoder: Encoder[SeatsReserved]   = deriveConfiguredEncoder

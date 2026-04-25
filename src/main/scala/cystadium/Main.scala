@@ -28,7 +28,7 @@ object Main {
     val sessionTtl    = toScala(config.getDuration("session-ttl"))
     val askTimeout    = toScala(config.getDuration("ask-timeout"))
 
-    val sessionManager = system.actorOf(SessionManager.props(sessionTtl), "session-manager")
+    val sessionManager = system.actorOf(SessionManager.props(sessionTtl, cystadium.db.Database.db), "session-manager")
 
     // Acteurs des autres équipes — pas encore créés, branchés via le Supervisor
     // collectif. En attendant, `deadLetters` fait timeout → 503 service_unavailable.

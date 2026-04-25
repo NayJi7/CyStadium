@@ -22,8 +22,17 @@ case class  Confirmed(clientId: ClientId, bookingId: BookingId) extends SeatStat
 case object Locked extends SeatStatus
 
 // ── Auth — SessionManager (Adam) ──────────────────────────────────────────────
-case class Login(clientId: ClientId)
-case class LoginSuccess(sessionId: SessionId)
+// Login/Register par pseudo + mot de passe.
+// L'identifiant interne reste un UUID (ClientId) — utilisé partout en aval.
+
+case class Register(username: String, password: String, email: String, name: String)
+case class RegisterSuccess(clientId: ClientId, username: String)
+case class RegisterFailed(reason: String)
+
+case class Login(username: String, password: String)
+case class LoginSuccess(sessionId: SessionId, clientId: ClientId, username: String)
+case class LoginFailed(reason: String)
+
 case class Logout(sessionId: SessionId)
 case class ValidateSession(sessionId: SessionId)
 case class SessionValid(clientId: ClientId)

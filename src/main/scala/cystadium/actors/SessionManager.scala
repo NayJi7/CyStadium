@@ -1,45 +1,113 @@
 package cystadium.actors
 
-import akka.actor.{Actor, ActorLogging, Cancellable, Props}
+import akka.actor.{Actor, ActorLogging, Cancellable, Props, Status}
+import akka.pattern.pipe
+import cystadium.db.Tables
 import cystadium.protocol._
+import org.mindrot.jbcrypt.BCrypt
+import slick.jdbc.PostgresProfile.api._
 
 import java.time.Instant
 import java.util.UUID
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.FiniteDuration
+import scala.util.{Failure, Success}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SessionManager — Adam
-// Acteur d'authentification en mémoire.
-//   Login(clientId)           → LoginSuccess(sessionId)
-//   ValidateSession(sessionId) → SessionValid(clientId) | SessionInvalid
-//   Logout(sessionId)          → (rien)
-//   SessionExpired(sessionId)  → self, planifié via scheduler après ttl
+// Auth pseudo + mot de passe (BCrypt). ClientId reste un UUID interne.
+//
+//   Register(username, password, email, name)  → RegisterSuccess(clientId) | RegisterFailed
+//   Login(username, password)                  → LoginSuccess(sessionId, clientId, username) | LoginFailed
+//   Logout(sessionId)                          → (rien)
+//   ValidateSession(sessionId)                 → SessionValid(clientId) | SessionInvalid
+//   SessionExpired(sessionId)                  → self, planifié via scheduler
 // ─────────────────────────────────────────────────────────────────────────────
 
 object SessionManager {
-  def props(ttl: FiniteDuration): Props = Props(new SessionManager(ttl))
+  def props(ttl: FiniteDuration, db: Database): Props =
+    Props(new SessionManager(ttl, db))
 
   private final case class SessionEntry(
     clientId:  ClientId,
+    username:  String,
     expiresAt: Instant,
     timer:     Cancellable
   )
+
+  // Réponses internes des futures DB
+  private final case class CredentialsCheck(
+    requester: akka.actor.ActorRef,
+    result:    Either[String, (ClientId, String)] // username
+  )
+  private final case class RegistrationDone(
+    requester: akka.actor.ActorRef,
+    result:    Either[String, (ClientId, String)]
+  )
 }
 
-class SessionManager(ttl: FiniteDuration) extends Actor with ActorLogging {
+class SessionManager(ttl: FiniteDuration, db: Database) extends Actor with ActorLogging {
   import SessionManager._
   import context.dispatcher
+
+  private implicit val ec: ExecutionContext = context.dispatcher
 
   private var sessions: Map[SessionId, SessionEntry] = Map.empty
 
   override def receive: Receive = {
-    case Login(clientId) =>
+
+    case Register(username, password, email, name) =>
+      val u = username.trim
+      val requester = sender()
+      if (u.isEmpty || password.length < 6 || email.trim.isEmpty || name.trim.isEmpty) {
+        requester ! RegisterFailed("invalid_input")
+      } else {
+        val hash    = BCrypt.hashpw(password, BCrypt.gensalt(10))
+        val newId   = UUID.randomUUID()
+        val newRow  = cystadium.db.ClientRow(newId, email.trim, name.trim, u, Some(hash))
+        val insert  = (Tables.clients += newRow).asTry
+        db.run(insert).map {
+          case Success(_)  => RegistrationDone(requester, Right(newId -> u))
+          case Failure(_)  => RegistrationDone(requester, Left("username_or_email_taken"))
+        }.recover { case _ => RegistrationDone(requester, Left("db_error")) }
+          .pipeTo(self)
+      }
+
+    case RegistrationDone(requester, Right((cid, uname))) =>
+      log.info("auth.register clientId={} username={}", cid, uname)
+      requester ! RegisterSuccess(cid, uname)
+
+    case RegistrationDone(requester, Left(reason)) =>
+      requester ! RegisterFailed(reason)
+
+    case Login(username, password) =>
+      val u = username.trim
+      val requester = sender()
+      if (u.isEmpty || password.isEmpty) {
+        requester ! LoginFailed("invalid_credentials")
+      } else {
+        val q = Tables.clients.filter(_.username === u).take(1).result.headOption
+        db.run(q).map {
+          case Some(row) =>
+            val ok = row.passwordHash.exists(h => BCrypt.checkpw(password, h))
+            if (ok) CredentialsCheck(requester, Right(row.id -> row.username))
+            else    CredentialsCheck(requester, Left("invalid_credentials"))
+          case None =>
+            CredentialsCheck(requester, Left("invalid_credentials"))
+        }.recover { case _ => CredentialsCheck(requester, Left("db_error")) }
+          .pipeTo(self)
+      }
+
+    case CredentialsCheck(requester, Right((cid, uname))) =>
       val sessionId = UUID.randomUUID()
       val expiresAt = Instant.now().plusMillis(ttl.toMillis)
       val timer     = context.system.scheduler.scheduleOnce(ttl, self, SessionExpired(sessionId))
-      sessions += sessionId -> SessionEntry(clientId, expiresAt, timer)
-      log.info("session.open sessionId={} clientId={}", sessionId, clientId)
-      sender() ! LoginSuccess(sessionId)
+      sessions += sessionId -> SessionEntry(cid, uname, expiresAt, timer)
+      log.info("session.open sessionId={} clientId={} username={}", sessionId, cid, uname)
+      requester ! LoginSuccess(sessionId, cid, uname)
+
+    case CredentialsCheck(requester, Left(reason)) =>
+      requester ! LoginFailed(reason)
 
     case ValidateSession(sessionId) =>
       sessions.get(sessionId) match {
@@ -59,6 +127,9 @@ class SessionManager(ttl: FiniteDuration) extends Actor with ActorLogging {
         log.info("session.expire sessionId={}", sessionId)
         sessions -= sessionId
       }
+
+    case Status.Failure(ex) =>
+      log.error(ex, "SessionManager: future en échec")
   }
 
   override def postStop(): Unit =

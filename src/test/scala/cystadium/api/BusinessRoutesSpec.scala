@@ -5,7 +5,6 @@ import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.model.headers.RawHeader
 import akka.http.scaladsl.testkit.ScalatestRouteTest
 import akka.util.Timeout
-import cystadium.actors.SessionManager
 import cystadium.json.Codecs._
 import cystadium.protocol._
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
@@ -42,12 +41,35 @@ private class FakeResponder(reply: PartialFunction[Any, Any]) extends Actor {
   }
 }
 
+// Stub SessionManager pour les tests d'API : accepte n'importe quel login
+// et garde les sessions en mémoire. Évite la dépendance à Supabase.
+private class StubAuth extends Actor {
+  private var sessions = Map.empty[UUID, UUID]
+  def receive: Receive = {
+    case Login(_, _) =>
+      val sid = UUID.randomUUID()
+      val cid = UUID.randomUUID()
+      sessions += sid -> cid
+      sender() ! LoginSuccess(sid, cid, "test")
+    case Logout(sid) =>
+      sessions -= sid
+    case ValidateSession(sid) =>
+      sessions.get(sid) match {
+        case Some(cid) => sender() ! SessionValid(cid)
+        case None      => sender() ! SessionInvalid
+      }
+  }
+}
+
 class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
   implicit val askTimeout: Timeout = Timeout(2.seconds)
 
   private def login(routes: akka.http.scaladsl.server.Route): String = {
-    val body = Json.obj("client_id" -> Json.fromString(UUID.randomUUID().toString))
+    val body = Json.obj(
+      "username" -> Json.fromString("alice"),
+      "password" -> Json.fromString("secret"),
+    )
     Post("/api/auth/login", body) ~> routes ~> check {
       responseAs[Json].hcursor.get[String]("session_id").toOption.get
     }
@@ -60,7 +82,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val fake = system.actorOf(Props(new FakeResponder({
         case CheckAvailability(id) if id == matchId => result
       })))
-      val sm     = system.actorOf(SessionManager.props(15.minutes))
+      val sm     = system.actorOf(Props(new StubAuth))
       val routes = new Routes(sm, fake, system.deadLetters, system.deadLetters, 2.seconds).all
 
       Get(s"/api/matches/$matchId") ~> routes ~> check {
@@ -76,7 +98,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
   "POST /api/reservations" should {
 
     "retourner 401 sans session" in {
-      val sm     = system.actorOf(SessionManager.props(15.minutes))
+      val sm     = system.actorOf(Props(new StubAuth))
       val routes = new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 2.seconds).all
       val body = Payloads.reserveSeats(UUID.randomUUID(), "VIP", Set(UUID.randomUUID()), UUID.randomUUID())
       Post("/api/reservations", body) ~> routes ~> check {
@@ -91,7 +113,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val fake = system.actorOf(Props(new FakeResponder({
         case _: ReserveSeats => reply
       })))
-      val sm     = system.actorOf(SessionManager.props(15.minutes))
+      val sm     = system.actorOf(Props(new StubAuth))
       val routes = new Routes(sm, system.deadLetters, fake, system.deadLetters, 2.seconds).all
       val sid    = login(routes)
 
@@ -107,7 +129,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val fake = system.actorOf(Props(new FakeResponder({
         case _: ReserveSeats => SeatsUnavailable(conflict)
       })))
-      val sm     = system.actorOf(SessionManager.props(15.minutes))
+      val sm     = system.actorOf(Props(new StubAuth))
       val routes = new Routes(sm, system.deadLetters, fake, system.deadLetters, 2.seconds).all
       val sid    = login(routes)
 
@@ -124,7 +146,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val fake = system.actorOf(Props(new FakeResponder({
         case _: InitPayment => PaymentFailed(reservationId, "card_declined")
       })))
-      val sm     = system.actorOf(SessionManager.props(15.minutes))
+      val sm     = system.actorOf(Props(new StubAuth))
       val routes = new Routes(sm, system.deadLetters, system.deadLetters, fake, 2.seconds).all
       val sid    = login(routes)
 
@@ -140,7 +162,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val fake = system.actorOf(Props(new FakeResponder({
         case _: InitPayment => PaymentTimeout(reservationId)
       })))
-      val sm     = system.actorOf(SessionManager.props(15.minutes))
+      val sm     = system.actorOf(Props(new StubAuth))
       val routes = new Routes(sm, system.deadLetters, system.deadLetters, fake, 2.seconds).all
       val sid    = login(routes)
 
@@ -154,7 +176,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
 
   "Timeout sur un acteur indisponible" should {
     "retourner 503 service_unavailable" in {
-      val sm     = system.actorOf(SessionManager.props(15.minutes))
+      val sm     = system.actorOf(Props(new StubAuth))
       // matchManager = deadLetters → jamais de réponse → AskTimeoutException
       val routes = new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 500.millis).all
       Get(s"/api/matches/${UUID.randomUUID()}") ~> routes ~> check {

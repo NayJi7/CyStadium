@@ -35,7 +35,13 @@ final case class SeatRow(
   row: String, number: Int, status: String
 )
 
-final case class ClientRow(id: UUID, email: String, name: String)
+final case class ClientRow(
+  id: UUID,
+  email: String,
+  name: String,
+  username: String,
+  passwordHash: Option[String]
+)
 
 final case class SessionRow(
   id: UUID, clientId: UUID, createdAt: Instant, expiresAt: Instant
@@ -90,10 +96,13 @@ class Seats(tag: Tag) extends CystadiumTable[SeatRow](tag, "seats") {
 }
 
 class Clients(tag: Tag) extends CystadiumTable[ClientRow](tag, "clients") {
-  def id    = column[UUID]("id", O.PrimaryKey)
-  def email = column[String]("email", O.Unique)
-  def name  = column[String]("name")
-  def * : ProvenShape[ClientRow] = (id, email, name).mapTo[ClientRow]
+  def id           = column[UUID]("id", O.PrimaryKey)
+  def email        = column[String]("email", O.Unique)
+  def name         = column[String]("name")
+  def username     = column[String]("username", O.Unique)
+  def passwordHash = column[Option[String]]("password_hash")
+  def * : ProvenShape[ClientRow] =
+    (id, email, name, username, passwordHash).mapTo[ClientRow]
 }
 
 class Sessions(tag: Tag) extends CystadiumTable[SessionRow](tag, "sessions") {

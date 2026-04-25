@@ -31,7 +31,7 @@ class Routes(
   implicit val askTimeout: Timeout = Timeout(askTimeoutDuration)
 
   private val authHelper         = new AuthHelper(sessionManager)
-  private val authRoutes         = new AuthRoutes(sessionManager).routes
+  private val authRoutes         = new AuthRoutes(sessionManager, authHelper.authenticated).routes
   private val matchRoutes        = new MatchRoutes(matchManager).routes
   private val reservationRoutes  =
     new ReservationRoutes(reservationHandler, paymentGateway, authHelper.authenticated).routes

@@ -39,14 +39,25 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<T> {
 }
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
-export type LoginResponse = { session_id: string };
+export type LoginResponse   = { session_id: string; client_id: string; username: string };
+export type RegisterResponse = { client_id: string; username: string };
 
 export const api = {
-  login: (clientId: string) =>
-    request<LoginResponse>("/api/auth/login", { body: { client_id: clientId } }),
+  register: (username: string, password: string, email: string, name: string) =>
+    request<RegisterResponse>("/api/auth/register", {
+      body: { username, password, email, name },
+    }),
+
+  login: (username: string, password: string) =>
+    request<LoginResponse>("/api/auth/login", {
+      body: { username, password },
+    }),
 
   logout: (sessionId: string) =>
     request<void>("/api/auth/logout", { method: "POST", sessionId }),
+
+  me: (sessionId: string) =>
+    request<{ client_id: string }>("/api/auth/me", { method: "GET", sessionId }),
 
   // Disponibilité d'un match (branché quand MatchManager sera prêt)
   matchAvailability: (matchId: string, sessionId?: string) =>
