@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 248 250 252;
+    --foreground: 11 31 58;
+    --surface:    255 255 255;
+    --border:     226 232 240;
+    --accent:     34 211 238;
+  }
+
+  .dark {
+    --background: 5 15 34;
+    --foreground: 248 250 252;
+    --surface:    11 31 58;
+    --border:     30 58 138;
+    --accent:     34 211 238;
+  }
+
+  html, body {
+    background-color: rgb(var(--background));
+    color: rgb(var(--foreground));
+    min-height: 100dvh;
+  }
+
+  *:focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .heading-display {
+    font-family: var(--font-display), Impact, sans-serif;
+    letter-spacing: 0.02em;
+    line-height: 0.95;
+    text-transform: uppercase;
+  }
+}
+
+@layer utilities {
+  .bg-dark-pitch {
+    background-color: #030811;
+    background-image: repeating-linear-gradient(
+      90deg,
+      #030811,
+      #030811 12vw,
+      #040a16 12vw,
+      #040a16 24vw
+    );
+    background-attachment: fixed;
+  }
+}

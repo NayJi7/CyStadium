@@ -8,15 +8,19 @@ target/
 project/target/
 project/project/
 .bsp/
+.bloop/
 .metals/
 .scala-build/
 *.class
+project/.bloop/
+project/metals.sbt
 
 # ── Node / Next.js ───────────────────────────────────────────────────────────
 frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/.pnpm-store/
+frontend/tsconfig.tsbuildinfo
 
 # ── IDE ───────────────────────────────────────────────────────────────────────
 .idea/

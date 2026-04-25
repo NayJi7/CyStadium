@@ -1,0 +1,7 @@
+frontend/public/models/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+frontend/public/models/**/*.obj filter=lfs diff=lfs merge=lfs -text
+frontend/public/models/**/*.gltf filter=lfs diff=lfs merge=lfs -text
+frontend/public/models/**/*.glb filter=lfs diff=lfs merge=lfs -text
+frontend/public/models/**/*.bin filter=lfs diff=lfs merge=lfs -text
+frontend/public/models/**/*.png filter=lfs diff=lfs merge=lfs -text
+frontend/public/models/**/*.jpg filter=lfs diff=lfs merge=lfs -text
