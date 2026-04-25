@@ -4,8 +4,6 @@ import akka.actor.{Actor, ActorLogging, Props}
 import cystadium.protocol._
 
 object SeatActor {
-  // Le ZoneManager d'Eléonore utilisera cette méthode pour créer tes acteurs.
-  // On passe matchId en paramètre car tu en as besoin pour le SeatStatusEvent.
   def props(matchId: MatchId, seatId: SeatId, zone: Zone, price: Double, initialState: SeatStatus): Props =
     Props(new SeatActor(matchId, seatId, zone, price, initialState))
 }
@@ -13,10 +11,8 @@ object SeatActor {
 class SeatActor(val matchId: MatchId, val seatId: SeatId, val zone: Zone, val price: Double, initialState: SeatStatus) 
   extends Actor with ActorLogging {
 
-  // L'acteur démarre avec le statut lu en base de données, comme exigé par la spec.
   var status: SeatStatus = initialState
 
-  // Fonction utilitaire pour centraliser la mise à jour de l'état et la publication de l'événement pour Adam.
   private def changeStatusAndPublish(newStatus: SeatStatus): Unit = {
     status = newStatus
     context.system.eventStream.publish(SeatStatusEvent(matchId, seatId, newStatus))
@@ -24,7 +20,7 @@ class SeatActor(val matchId: MatchId, val seatId: SeatId, val zone: Zone, val pr
 
   def receive: Receive = {
     
-    // 1. Demande de réservation par le SeatAllocator (Fatima/Abdel)
+    // 1. Demande de réservation par le SeatAllocator
     case ReserveSeat(clientId, bookingId, deadline) =>
       status match {
         case Free =>
@@ -42,7 +38,6 @@ class SeatActor(val matchId: MatchId, val seatId: SeatId, val zone: Zone, val pr
           changeStatusAndPublish(Confirmed(cId, bookingId))
           sender() ! SeatConfirmedOk(seatId)
         case _ =>
-          // Ignoré silencieusement si le bookingId ne correspond pas ou si le siège n'est pas "Reserved"
           log.warning(s"[$seatId] Tentative de confirmation invalide pour le booking $bookingId")
       }
 
@@ -53,7 +48,6 @@ class SeatActor(val matchId: MatchId, val seatId: SeatId, val zone: Zone, val pr
           changeStatusAndPublish(Free)
           sender() ! SeatReleasedOk(seatId)
         case _ =>
-          // Ignoré silencieusement si le bookingId ne correspond pas
           log.warning(s"[$seatId] Tentative de libération invalide pour le booking $bookingId")
       }
 
