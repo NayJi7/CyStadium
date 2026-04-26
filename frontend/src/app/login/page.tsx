@@ -96,7 +96,7 @@ export default function LoginPage() {
 
       <div className="relative mx-auto grid min-h-[calc(100dvh-4rem)] max-w-[1480px] grid-cols-1 lg:grid-cols-12">
 
-        {/* ═══ LEFT — editorial hero ═══════════════════════════════════ */}
+        {/* ═══ LEFT, editorial hero ═══════════════════════════════════ */}
         <section className="relative flex flex-col justify-between px-6 py-10 lg:col-span-7 lg:px-14 lg:py-16">
           {/* TOP : eyebrow */}
           <motion.div
@@ -213,7 +213,7 @@ export default function LoginPage() {
           </motion.div>
         </section>
 
-        {/* ═══ RIGHT — auth panel ════════════════════════════════════ */}
+        {/* ═══ RIGHT, auth panel ════════════════════════════════════ */}
         <aside className="relative flex items-center px-6 py-12 lg:col-span-5 lg:px-10 lg:py-16 xl:px-14">
           <motion.div
             initial={{ opacity: 0, x: 32 }}
@@ -221,7 +221,7 @@ export default function LoginPage() {
             transition={{ duration: 0.7, ease: EASE, delay: 0.2 }}
             className="relative w-full"
           >
-            {/* Floating brand mark — FIFA badge */}
+            {/* Floating brand mark, FIFA badge */}
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -240,7 +240,7 @@ export default function LoginPage() {
               <div className="relative">
                 <div className="mb-8">
                   <div className="font-mono text-[10px] uppercase tracking-[0.35em] text-cyan-300/80">
-                    {isLogin ? "— Connexion" : "— Inscription"}
+                    {isLogin ? "· Connexion" : "· Inscription"}
                   </div>
                   <h2 className="mt-2 font-display text-4xl leading-tight tracking-tight">
                     {isLogin ? <>Bon retour.</> : <>Tout commence<br/>maintenant.</>}

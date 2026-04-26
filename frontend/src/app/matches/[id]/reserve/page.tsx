@@ -4,40 +4,72 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
-import { api } from "@/lib/api";
+import { api, ApiError, openLiveSocket, type LiveEvent, type MatchItem, type SeatInfo } from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 import { Flag } from "@/components/Flag";
-import { findMatch } from "@/lib/matches";
 import { ZoneSelector, ZONE_META, Zone } from "@/components/ZoneSelector";
 import { SeatMap, type Seat, type Zones } from "@/components/SeatMap";
 import { ReservationCart } from "@/components/ReservationCart";
 import { LiveStatus } from "@/components/LiveStatus";
-import type { LiveEvent } from "@/lib/api";
+import { PaymentForm } from "@/components/PaymentForm";
+import { X } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
-
-const MOCK_ZONES: Zones = { VIP: 12, Or: 67, Standard: 213, Populaire: 584 };
 const MAX_SEATS = 8;
 
 export default function ReservePage({ params }: { params: { id: string } }) {
-  const meta = findMatch(params.id);
-  const matchUuid = meta?.uuid ?? params.id;
-
+  const [matchMeta, setMatchMeta] = useState<MatchItem | null>(null);
   const [zones, setZones] = useState<Zones | null>(null);
+  const [seats, setSeats] = useState<SeatInfo[] | null>(null);
   const [zoneFilter, setZoneFilter] = useState<Zone | null>(null);
   const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
   const [session, setSession] = useState<string | null>(null);
   const [liveUpdates, setLiveUpdates] = useState<Record<string, LiveEvent["status"]>>({});
+  const [payment, setPayment] = useState<{ reservationId: string; amount: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { setSession(getSessionId()); }, []);
 
+  // Fetch match metadata
   useEffect(() => {
     let cancelled = false;
-    api.matchAvailability(matchUuid)
-      .then((r) => { if (!cancelled) setZones(r.zones); })
-      .catch(() => { if (!cancelled) setZones(MOCK_ZONES); });
+    api.getMatches()
+      .then((matches) => {
+        if (cancelled) return;
+        const found = matches.find((m) => m.id === params.id);
+        if (found) setMatchMeta(found);
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [matchUuid]);
+  }, [params.id]);
+
+  // Fetch zones + seats
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    Promise.all([
+      api.matchAvailability(params.id).catch((e) => { throw e; }),
+      api.getMatchSeats(params.id, getSessionId() ?? undefined).catch(() => null),
+    ])
+      .then(([availRes, seatRes]) => {
+        if (cancelled) return;
+        setZones(availRes.zones);
+        if (seatRes) setSeats(seatRes);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof ApiError ? `API ${e.status}` : "Backend indisponible");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [params.id]);
 
   useEffect(() => { setSelectedSeats([]); }, [zones]);
 
@@ -54,7 +86,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
       setSelectedSeats(selectedSeats.filter((s) => s.id !== seat.id));
     } else {
       if (selectedSeats.length >= MAX_SEATS) {
-        alert(`Vous ne pouvez pas réserver plus de ${MAX_SEATS} places.`);
+        alert(`Vous ne pouvez pas reserver plus de ${MAX_SEATS} places.`);
         return;
       }
       setSelectedSeats([...selectedSeats, seat]);
@@ -67,6 +99,24 @@ export default function ReservePage({ params }: { params: { id: string } }) {
     () => selectedSeats.reduce((total, seat) => total + ZONE_META[seat.zone].price, 0),
     [selectedSeats]
   );
+
+  // Create reservation via API
+  const handleConfirm = async () => {
+    if (selectedSeats.length === 0 || !session) return;
+    try {
+      const zone = selectedSeats[0].zone;
+      const seatIds = selectedSeats.map((s) => s.id);
+      const res = await api.createReservation(params.id, zone, seatIds, session);
+      setPayment({ reservationId: res.reservation_id, amount: totalPrice });
+    } catch (e) {
+      alert(e instanceof ApiError ? `Erreur: ${e.status}` : "Erreur lors de la reservation");
+    }
+  };
+
+  const handlePaymentSuccess = () => {
+    setSelectedSeats([]);
+    setTimeout(() => setPayment(null), 1800);
+  };
 
   return (
     <div className="relative flex flex-col h-[calc(100dvh-4rem)] text-slate-200 selection:bg-cyan-400/30 overflow-hidden" style={{ background: "#04070d" }}>
@@ -123,17 +173,17 @@ export default function ReservePage({ params }: { params: { id: string } }) {
           </Link>
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="text-center pt-4">
             <p className="font-mono text-sm uppercase tracking-[0.3em] text-white/40 flex items-center justify-center gap-2">
-              {meta ? <><Flag code={meta.home} size={22} /> vs <Flag code={meta.away} size={22} /></> : params.id}
+              {matchMeta ? <><Flag code={matchMeta.home_team} size={22} /> vs <Flag code={matchMeta.away_team} size={22} /></> : params.id}
             </p>
             <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-gold-300 tracking-tight mt-2 leading-[1.05]">
-              Sélection de places
+              Selection de places
             </h1>
             <div className="flex items-center gap-3 mt-3">
               <p className="text-white/40 flex items-center gap-1.5 text-base">
                 <MapPin size={16} className="text-cyan-400" />
-                {meta ? meta.stadium : "Stade Olympique"} · Plan Interactif
+                {matchMeta ? matchMeta.stadium : "Stade Olympique"} · Plan Interactif
               </p>
-              <LiveStatus matchId={matchUuid} onSeatStatus={handleSeatStatus} />
+              <LiveStatus matchId={params.id} onSeatStatus={handleSeatStatus} />
             </div>
           </motion.div>
         </div>
@@ -149,12 +199,31 @@ export default function ReservePage({ params }: { params: { id: string } }) {
             totalPrice={totalPrice}
             session={session}
             max={MAX_SEATS}
+            onConfirm={handleConfirm}
           />
         </div>
 
-        {zones && (
+        {loading && !zones && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center text-white/50">
+              <div className="mb-3 h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent mx-auto" />
+              <p className="text-sm">Chargement des places...</p>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center px-6">
+            <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-4 text-sm text-red-200 max-w-md">
+              Impossible de charger les Places : {error}. Le backend est-il lance ?
+            </div>
+          </div>
+        )}
+
+        {zones && !error && (
           <SeatMap
             zones={zones}
+            seats={seats}
             selectedSeats={selectedSeats}
             onToggleSeat={handleToggleSeat}
             zoneFilter={zoneFilter}
@@ -162,6 +231,42 @@ export default function ReservePage({ params }: { params: { id: string } }) {
           />
         )}
       </div>
+
+      <AnimatePresence>
+        {payment && (
+          <motion.div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={() => setPayment(null)} />
+            <motion.div
+              className="relative z-10 w-full max-w-md"
+              initial={{ opacity: 0, y: 20, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0,  scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.96 }}
+              transition={{ duration: 0.25, ease: EASE }}
+            >
+              <button
+                type="button"
+                onClick={() => setPayment(null)}
+                aria-label="Fermer"
+                className="absolute -top-2 -right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-navy-900 text-white/70 transition-colors hover:border-red-400/40 hover:text-red-300"
+              >
+                <X size={16} />
+              </button>
+              <PaymentForm
+                reservationId={payment.reservationId}
+                amount={payment.amount}
+                sessionId={session}
+                onSuccess={handlePaymentSuccess}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <style dangerouslySetInnerHTML={{ __html: `
         .clip-half-right { clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%); }

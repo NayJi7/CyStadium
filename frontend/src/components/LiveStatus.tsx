@@ -21,7 +21,7 @@ export function LiveStatus({ matchId, onSeatStatus, className }: Props) {
         onSeatStatus?.(ev.seat_id, ev.status);
       });
     } catch {
-      // ignore — backend may be offline
+      // ignore, backend may be offline
     }
     return () => sock?.close();
   }, [matchId, onSeatStatus]);

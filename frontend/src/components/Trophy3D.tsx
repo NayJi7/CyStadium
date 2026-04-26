@@ -72,7 +72,7 @@ const KEYFRAMES: Keyframe[] = [
   { at: 1.0,  x:  0.0, y: -0.2, z: 0.3, scale: 0.80, baseRotY: Math.PI * 2,   baseRotZ:  0.0,  baseRotX: -0.05 },
 ];
 
-/* Smooth step (Hermite interpolation) — transition douce entre keyframes */
+/* Smooth step (Hermite interpolation), transition douce entre keyframes */
 function smoothStep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);

@@ -9,10 +9,10 @@ export const ZONE_META: Record<
   Zone,
   { id: string; name: Zone; price: number; color: string; seatBg: string; seatBorder: string; shadow: string }
 > = {
-  Populaire: { id: "populaire", name: "Populaire", price: 45,  color: "bg-emerald-400",  seatBg: "bg-emerald-400",  seatBorder: "border-emerald-600",  shadow: "shadow-emerald-400/50" },
-  Standard:  { id: "standard",  name: "Standard",  price: 95,  color: "bg-blue-400",     seatBg: "bg-blue-400",     seatBorder: "border-blue-600",     shadow: "shadow-blue-400/50" },
-  Or:        { id: "or",        name: "Or",        price: 220, color: "bg-gold-400",     seatBg: "bg-gold-400",     seatBorder: "border-gold-600",     shadow: "shadow-gold-400/50" },
-  VIP:       { id: "vip",       name: "VIP",       price: 480, color: "bg-fuchsia-500",  seatBg: "bg-fuchsia-500",  seatBorder: "border-fuchsia-700",  shadow: "shadow-fuchsia-500/50" },
+  Populaire: { id: "populaire", name: "Populaire", price: 50,   color: "bg-emerald-400",  seatBg: "bg-emerald-400",  seatBorder: "border-emerald-600",  shadow: "shadow-emerald-400/50" },
+  Standard:  { id: "standard",  name: "Standard",  price: 100,  color: "bg-blue-400",     seatBg: "bg-blue-400",     seatBorder: "border-blue-600",     shadow: "shadow-blue-400/50" },
+  Or:        { id: "or",        name: "Or",        price: 250,  color: "bg-gold-400",     seatBg: "bg-gold-400",     seatBorder: "border-gold-600",     shadow: "shadow-gold-400/50" },
+  VIP:       { id: "vip",       name: "VIP",       price: 500,  color: "bg-fuchsia-500",  seatBg: "bg-fuchsia-500",  seatBorder: "border-fuchsia-700",  shadow: "shadow-fuchsia-500/50" },
 };
 
 type Props = {
@@ -35,7 +35,7 @@ export function ZoneSelector({ selected, onChange, className }: Props) {
             }`}
             onClick={() => onChange(isActive ? null : zone.name)}
           >
-            <div className={`w-4 h-5 rounded-t-[5px] rounded-b-[2px] border-t-[3px] border-x border-b ${zone.seatBg} ${zone.seatBorder}`} />
+            <div className={`w-6 h-7 rounded-t-[7px] rounded-b-[3px] border-t-[5px] border-x-2 border-b-2 ${zone.seatBg} ${zone.seatBorder}`} />
             <span className="text-gray-200 font-medium">
               {zone.name} <span className="text-gray-500">({zone.price}€)</span>
             </span>

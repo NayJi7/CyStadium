@@ -1,8 +1,7 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -13,10 +12,9 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api, ApiError, openLiveSocket, type LiveEvent } from "@/lib/api";
-import { flagInfo } from "@/components/Flag";
+import { api, ApiError, openLiveSocket, type LiveEvent, type MatchItem } from "@/lib/api";
 import { AuroraBackground } from "@/components/AuroraBackground";
-import { findMatch } from "@/lib/matches";
+import { Flag } from "@/components/Flag";
 
 type Zones = Record<string, number>;
 
@@ -24,34 +22,41 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 const ZONE_ORDER = ["VIP", "Or", "Standard", "Populaire"];
 
 export default function MatchDetailPage({ params }: { params: { id: string } }) {
-  const meta = findMatch(params.id);
-  const matchUuid = meta?.uuid ?? params.id;
-  const home = meta ? flagInfo(meta.home) : null;
-  const away = meta ? flagInfo(meta.away) : null;
-
+  const [matchMeta, setMatchMeta] = useState<MatchItem | null>(null);
   const [zones, setZones] = useState<Zones | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [liveCount, setLiveCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .matchAvailability(matchUuid)
-      .then((r) => !cancelled && setZones(r.zones))
+    api.getMatches()
+      .then((matches) => {
+        if (cancelled) return;
+        const found = matches.find((m) => m.id === params.id);
+        if (found) setMatchMeta(found);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [params.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.matchAvailability(params.id)
+      .then((r) => { if (!cancelled) setZones(r.zones); })
       .catch((e) => {
         if (cancelled) return;
         setError(e instanceof ApiError ? `API ${e.status}` : "Backend indisponible");
       });
     return () => { cancelled = true; };
-  }, [matchUuid]);
+  }, [params.id]);
 
   useEffect(() => {
     let sock: WebSocket | null = null;
     try {
-      sock = openLiveSocket(matchUuid, (_: LiveEvent) => setLiveCount((n) => n + 1));
+      sock = openLiveSocket(params.id, (_: LiveEvent) => setLiveCount((n) => n + 1));
     } catch {}
     return () => sock?.close();
-  }, [matchUuid]);
+  }, [params.id]);
 
   const total = zones ? Object.values(zones).reduce((a, b) => a + b, 0) : null;
 
@@ -59,18 +64,8 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
     <div className="relative">
       <AuroraBackground />
 
-      {/* ── Hero ──────────────────────────────────────────────────── */}
+      {/* Hero */}
       <section className="relative h-[52vh] min-h-[420px] overflow-hidden">
-        {meta && (
-          <Image
-            src={meta.hero}
-            alt=""
-            fill
-            sizes="100vw"
-            className="object-cover opacity-40"
-            priority
-          />
-        )}
         <div className="absolute inset-0 bg-gradient-to-b from-navy-950/50 via-navy-950/30 to-navy-900" />
 
         <div className="relative mx-auto flex h-full max-w-7xl flex-col justify-end px-6 pb-10">
@@ -86,14 +81,14 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
             <div>
               <div className="mb-3 flex items-center gap-3">
                 <span className="rounded-full bg-cyan-400 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-navy-950 shadow-glow">
-                  {meta?.stage ?? "Match"}
+                  {matchMeta?.stage ?? "Match"}
                 </span>
                 <span className="font-mono text-[10px] uppercase tracking-wider text-white/40">
                   /{params.id}
                 </span>
               </div>
 
-              {meta && home && away ? (
+              {matchMeta ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -101,48 +96,36 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
                   className="flex flex-wrap items-center gap-6"
                 >
                   <div className="flex items-center gap-4">
-                    <Image
-                      src={home.url}
-                      alt={home.name}
-                      width={120}
-                      height={80}
-                      className="h-14 w-auto rounded-sm shadow-xl ring-1 ring-white/20"
-                      unoptimized
-                    />
+                    <Flag code={matchMeta.home_team} size={56} />
                     <h1 className="heading-display text-5xl md:text-7xl">
-                      {home.name}
+                      {matchMeta.home_team}
                     </h1>
                   </div>
                   <span className="heading-display text-2xl text-cyan-400">VS</span>
                   <div className="flex items-center gap-4">
                     <h1 className="heading-display text-5xl md:text-7xl">
-                      {away.name}
+                      {matchMeta.away_team}
                     </h1>
-                    <Image
-                      src={away.url}
-                      alt={away.name}
-                      width={120}
-                      height={80}
-                      className="h-14 w-auto rounded-sm shadow-xl ring-1 ring-white/20"
-                      unoptimized
-                    />
+                    <Flag code={matchMeta.away_team} size={56} />
                   </div>
                 </motion.div>
               ) : (
-                <h1 className="heading-display text-5xl md:text-7xl">
-                  Détail du <span className="text-cyan-400">match</span>
-                </h1>
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-32 animate-pulse rounded bg-navy-900/40" />
+                  <span className="heading-display text-2xl text-cyan-400">VS</span>
+                  <div className="h-10 w-32 animate-pulse rounded bg-navy-900/40" />
+                </div>
               )}
 
-              {meta && (
+              {matchMeta && (
                 <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-2 text-sm text-white/70">
                   <div className="flex items-center gap-2">
                     <Calendar size={14} className="text-cyan-400" aria-hidden />
-                    {meta.date}
+                    {matchMeta.date}
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin size={14} className="text-cyan-400" aria-hidden />
-                    {meta.stadium} · {meta.city}
+                    {matchMeta.stadium}{matchMeta.city ? ` · ${matchMeta.city}` : ""}
                   </div>
                 </dl>
               )}
@@ -156,12 +139,12 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
         </div>
       </section>
 
-      {/* ── Zones ─────────────────────────────────────────────────── */}
+      {/* Zones */}
       <section className="mx-auto max-w-7xl px-6 py-16">
         <div className="mb-8 flex items-end justify-between">
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-400">
-              Disponibilité
+              Disponibilite
             </p>
             <h2 className="heading-display text-4xl md:text-5xl">
               Quatre <span className="text-cyan-400">zones</span>.
@@ -174,14 +157,14 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
               <strong className="tabular-nums text-white">
                 {total.toLocaleString("fr-FR")}
               </strong>{" "}
-              sièges libres
+              sieges libres
             </span>
           )}
         </div>
 
         {error ? (
           <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-4 text-sm text-red-200">
-            Impossible de charger la disponibilité : {error}. Backend lancé ?
+            Impossible de charger la disponibilite : {error}. Backend lance ?
           </div>
         ) : zones ? (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -230,7 +213,7 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
         <div className="mt-10 flex flex-wrap gap-3">
           <Link href={`/matches/${params.id}/reserve`}>
             <Button size="lg" disabled={total === 0}>
-              {total === 0 ? "Complet" : "Réserver des places"}
+              {total === 0 ? "Complet" : "Reserver des places"}
             </Button>
           </Link>
         </div>

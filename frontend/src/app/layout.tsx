@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Bebas_Neue, Source_Sans_3 } from "next/font/google";
 import { Navbar } from "@/components/Navbar";
+import { SessionExpiredBanner } from "@/components/SessionExpiredBanner";
 import "./globals.css";
 
 const display = Bebas_Neue({
@@ -18,7 +19,7 @@ const sans = Source_Sans_3({
 });
 
 export const metadata: Metadata = {
-  title: "CyStadium — Secure your seat. Instantly.",
+  title: "CyStadium, Secure your seat. Instantly.",
   description:
     "Réservez votre place pour les matchs de la Coupe du Monde. Temps réel, paiement sécurisé, zéro surbooking.",
 };
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         
         <div className="relative z-10 flex min-h-dvh flex-col">
+          <SessionExpiredBanner />
           <Navbar />
           <main className="flex-1">{children}</main>
           <footer className="relative bg-navy-950/30 backdrop-blur-md border-t border-white/5 py-6 text-center text-xs text-white/40">

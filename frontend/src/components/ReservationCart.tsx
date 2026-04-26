@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, ShoppingCart, Ticket, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Info, ShieldCheck, ShoppingCart, Ticket, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ZONE_META } from "./ZoneSelector";
 import type { Seat } from "./SeatMap";
@@ -17,6 +17,11 @@ type Props = {
 };
 
 export function ReservationCart({ selected, onRemove, totalPrice, session, max = 8, onConfirm }: Props) {
+  const [confirming, setConfirming] = useState(false);
+
+  // Si la sélection change après être entré en confirmation, on revient à l'étape 1.
+  useEffect(() => { setConfirming(false); }, [selected.length]);
+
   if (selected.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 py-6 px-5 rounded-2xl bg-white/[0.04] backdrop-blur-md border border-white/[0.06] text-white/25 text-center">
@@ -63,16 +68,48 @@ export function ReservationCart({ selected, onRemove, totalPrice, session, max =
         })}
       </div>
       <div className="px-4 pb-4 pt-2">
-        <Button className="w-full" size="sm" disabled={selected.length === 0 || !session} title={!session ? "Connexion requise" : undefined} onClick={onConfirm}>
-          <Check size={15} aria-hidden /> Confirmer ({totalPrice}€)
-        </Button>
-        {!session && (
-          <p className="text-center text-xs text-white/30 mt-1.5">
-            <Link href="/login" className="text-cyan-300 hover:underline">
-              Se connecter
-            </Link>{" "}
-            pour finaliser
-          </p>
+        {!confirming ? (
+          <>
+            <Button
+              className="w-full"
+              size="sm"
+              disabled={selected.length === 0 || !session}
+              title={!session ? "Connexion requise" : undefined}
+              onClick={() => setConfirming(true)}
+            >
+              <Check size={15} aria-hidden /> Confirmer ({totalPrice}€)
+            </Button>
+            {!session && (
+              <p className="text-center text-xs text-white/30 mt-1.5">
+                <Link href="/login" className="text-cyan-300 hover:underline">
+                  Se connecter
+                </Link>{" "}
+                pour finaliser
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-2 text-xs text-emerald-200">
+              <Info size={14} className="flex-shrink-0 text-emerald-300" />
+              <p className="leading-snug">Vérifie tes places avant de procéder au paiement.</p>
+            </div>
+            <Button
+              className="w-full bg-emerald-500 text-white hover:bg-emerald-400 active:bg-emerald-600 shadow-[0_0_24px_-6px_rgba(16,185,129,0.6)] hover:shadow-[0_0_40px_-6px_rgba(16,185,129,0.75)]"
+              size="sm"
+              disabled={!session}
+              onClick={onConfirm}
+            >
+              <ShieldCheck size={15} aria-hidden /> Tout est bon, payer ({totalPrice}€)
+            </Button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="inline-flex items-center justify-center gap-1.5 text-xs text-red-300/80 hover:text-red-300 transition-colors"
+            >
+              <ArrowLeft size={12} /> Modifier ma sélection
+            </button>
+          </div>
         )}
       </div>
     </div>

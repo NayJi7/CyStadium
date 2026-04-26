@@ -33,7 +33,7 @@ const fadeUp: Variants = {
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   LANDING — Lenis smooth scroll + GSAP ScrollTrigger-driven 3D trophy
+   LANDING, Lenis smooth scroll + GSAP ScrollTrigger-driven 3D trophy
    ═══════════════════════════════════════════════════════════════════════════ */
 export default function LandingPage() {
   return (
@@ -72,7 +72,7 @@ function ScrollProgress() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   HERO — Big left-aligned statement, trophée à droite
+   HERO, Big left-aligned statement, trophée à droite
    ═══════════════════════════════════════════════════════════════════════════ */
 function HeroSection() {
   const headline = "Secure your seat.";
@@ -145,7 +145,7 @@ function HeroSection() {
           <motion.p variants={fadeUp} className="max-w-xl text-lg text-white/70">
             La billetterie officielle CyStadium. Acteurs Akka, vérification formelle
             par réseau de Pétri, WebSocket temps réel.{" "}
-            <span className="text-white">Zéro surbooking — prouvé, pas promis.</span>
+            <span className="text-white">Zéro surbooking, prouvé, pas promis.</span>
           </motion.p>
 
           <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-4">
@@ -197,7 +197,7 @@ function HeroSection() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   EXPÉRIENCE — Trophée à gauche, contenu calé à droite
+   EXPÉRIENCE, Trophée à gauche, contenu calé à droite
    ═══════════════════════════════════════════════════════════════════════════ */
 const FEATURES = [
   {
@@ -210,7 +210,7 @@ const FEATURES = [
     num: "02",
     icon: Radio,
     title: "Temps réel WebSocket",
-    desc: "Chaque siège change d'état en direct sous vos yeux. Libre, verrouillé, confirmé — sans refresh.",
+    desc: "Chaque siège change d'état en direct sous vos yeux. Libre, verrouillé, confirmé, sans refresh.",
   },
   {
     num: "03",
@@ -253,7 +253,7 @@ function ExperienceSection() {
             </p>
           </motion.div>
 
-          {/* 3 cartes empilées — on reste sur la moitié droite */}
+          {/* 3 cartes empilées, on reste sur la moitié droite */}
           <div className="mt-14 space-y-5">
             {FEATURES.map(({ num, icon: Icon, title, desc }, i) => (
               <motion.article
@@ -296,7 +296,7 @@ function ExperienceSection() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STATS — Bande horizontale
+   STATS, Bande horizontale
    ═══════════════════════════════════════════════════════════════════════════ */
 const STATS = [
   { value: 64,     suffix: "",   label: "Matchs",             decimals: undefined as number | undefined },
@@ -365,7 +365,7 @@ function StatsSection() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   STADE — Texte à gauche, image à droite
+   STADE, Texte à gauche, image à droite
    ═══════════════════════════════════════════════════════════════════════════ */
 function StadiumSection() {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -391,7 +391,7 @@ function StadiumSection() {
       </motion.div>
 
       <div className="mx-auto grid max-w-7xl items-center gap-12 px-6 md:grid-cols-[1fr_1.1fr]">
-        {/* Texte — gauche, parallax léger */}
+        {/* Texte, gauche, parallax léger */}
         <motion.div style={{ y: textY }} className="relative z-20 space-y-6">
           <motion.p
             initial={{ opacity: 0, x: -20 }}
@@ -426,7 +426,7 @@ function StadiumSection() {
             className="max-w-lg text-lg text-white/70"
           >
             Du Stade de France à l'Allianz Arena, de Wembley au Maracanã.
-            Chaque zone, chaque siège, chaque instant — cartographié, réservé,
+            Chaque zone, chaque siège, chaque instant, cartographié, réservé,
             sécurisé.
           </motion.p>
           <motion.div
@@ -448,7 +448,7 @@ function StadiumSection() {
           </motion.div>
         </motion.div>
 
-        {/* Image card — droite */}
+        {/* Image card, droite */}
         <motion.div
           initial={{ opacity: 0, scale: 0.94 }}
           whileInView={{ opacity: 1, scale: 1 }}
@@ -551,7 +551,7 @@ function FinalCtaSection() {
           transition={{ duration: 0.7, delay: 0.2 }}
           className="mx-auto mt-8 max-w-2xl text-lg text-white/70"
         >
-          64 matchs. 10 000 sièges. Un clic pour sécuriser le vôtre — avant tout
+          64 matchs. 10 000 sièges. Un clic pour sécuriser le vôtre, avant tout
           le monde.
         </motion.p>
 

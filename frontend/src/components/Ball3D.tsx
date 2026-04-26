@@ -12,7 +12,7 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import * as THREE from "three";
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Ball3D — "Stadium Bounce"
+   Ball3D, "Stadium Bounce"
    Ballon qui rebondit dans un mini-stade : ground + tribunes en anneaux
    concentriques, spots stade qui se croisent, ombre projetée dynamique,
    squash & stretch à l'impact, trail trainant et burst de particules.
@@ -130,7 +130,7 @@ function BouncingBall({ spinSpeed = 1.1 }: { spinSpeed?: number }) {
     ballRoot.current.position.y = y;
     heightRef.current = arc;
 
-    // Squash & stretch — uniquement au contact du sol
+    // Squash & stretch, uniquement au contact du sol
     // Détection : phase proche de 0 ou 1 (bord du cycle = impact sol)
     const nearImpact = Math.max(
       0,
@@ -166,7 +166,7 @@ function BouncingBall({ spinSpeed = 1.1 }: { spinSpeed?: number }) {
           </mesh>
         </Trail>
 
-        {/* Aura locale très diffuse, blanc neutre — pas de teinte */}
+        {/* Aura locale très diffuse, blanc neutre, pas de teinte */}
         <pointLight intensity={0.4} distance={3.5} color="#ffffff" />
 
         <group ref={spinGroup}>
@@ -186,7 +186,7 @@ function BallMesh() {
     "/models/trionda/roughness.png",
   ]);
 
-  // Texture officielle Adidas Trionda — pas de couleur appliquée par-dessus,
+  // Texture officielle Adidas Trionda, pas de couleur appliquée par-dessus,
   // les textures portent toute l'identité visuelle du ballon.
   colorMap.colorSpace = THREE.SRGBColorSpace;
 
@@ -244,7 +244,7 @@ export function Ball3D({
           shadow-camera-bottom={-6}
         />
         <directionalLight position={[-4, 4, 3]} intensity={0.4} color="#ffffff" />
-        {/* Rim warm gold derrière, très faible — accent stade */}
+        {/* Rim warm gold derrière, très faible, accent stade */}
         <directionalLight
           position={[3, 2, -6]}
           intensity={0.25}
@@ -261,7 +261,7 @@ export function Ball3D({
           <BounceBase />
           <BouncingBall spinSpeed={spinSpeed} />
 
-          {/* Sparkles cyan flottants — donnent de la vie au fond transparent */}
+          {/* Sparkles cyan flottants, donnent de la vie au fond transparent */}
           <Sparkles
             count={120}
             scale={[5, 4, 4]}

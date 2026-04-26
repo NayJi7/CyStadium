@@ -20,7 +20,7 @@ const Trophy3D = dynamic(
 /**
  * Coupe flottante pilotée par GSAP ScrollTrigger.
  *
- * 1. Position: fixed inset-0 — le Canvas Three.js couvre tout le viewport.
+ * 1. Position: fixed inset-0, le Canvas Three.js couvre tout le viewport.
  * 2. GSAP ScrollTrigger scrub 1.2s → scrollProgress (0-1) dans une ref.
  * 3. Trophy3D interpole les keyframes 3D (position/scale/rotation)
  *    avec lerp dampening premium.

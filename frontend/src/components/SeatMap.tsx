@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ZONE_META, Zone } from "./ZoneSelector";
+import type { SeatInfo } from "@/lib/api";
 
 export type SeatStatus = "available" | "occupied";
 
@@ -96,23 +97,77 @@ function generateStadiumData(availableCounts: Zones) {
   return { seats, maxRx, maxRy };
 }
 
+/** Map real API seat data into the internal Seat format, placing them in the stadium layout. */
+function mapApiSeats(apiSeats: SeatInfo[], fallbackData: { seats: Seat[]; maxRx: number; maxRy: number }): { seats: Seat[]; maxRx: number; maxRy: number } {
+  // Create a lookup from the generated layout by (section, row, number) to get x/y/rotation
+  const layoutMap = new Map<string, Seat>();
+  for (const s of fallbackData.seats) {
+    layoutMap.set(`${s.section}-${s.row}-${s.num}`, s);
+  }
+
+  const mapped: Seat[] = [];
+  const usedLayoutIndices = new Set<string>();
+
+  for (const apiSeat of apiSeats) {
+    const zone = (apiSeat.zone as Zone) ?? "Standard";
+    const section = apiSeat.section ?? "Est";
+    const row = apiSeat.row ?? 1;
+    const num = apiSeat.number ?? 1;
+    const key = `${section}-${row}-${num}`;
+
+    // Try to find position in generated layout
+    const layoutSeat = layoutMap.get(key);
+    usedLayoutIndices.add(key);
+
+    mapped.push({
+      id: apiSeat.seat_id,
+      section,
+      row,
+      num,
+      x: layoutSeat?.x ?? 0,
+      y: layoutSeat?.y ?? 0,
+      rotation: layoutSeat?.rotation ?? 0,
+      zone,
+      status: apiSeat.status === "free" ? "available" : "occupied",
+    });
+  }
+
+  // Add remaining generated seats that weren't covered by API data
+  for (const s of fallbackData.seats) {
+    const key = `${s.section}-${s.row}-${s.num}`;
+    if (!usedLayoutIndices.has(key)) {
+      mapped.push(s);
+    }
+  }
+
+  return { seats: mapped, maxRx: fallbackData.maxRx, maxRy: fallbackData.maxRy };
+}
+
 type Props = {
   zones: Zones;
+  seats?: SeatInfo[] | null;
   selectedSeats: Seat[];
   onToggleSeat: (seat: Seat) => void;
   zoneFilter: Zone | null;
   liveUpdates?: Record<string, "free" | "reserved" | "confirmed" | "locked">;
 };
 
-export function SeatMap({ zones, selectedSeats, onToggleSeat, zoneFilter, liveUpdates }: Props) {
-  const [stadiumData, setStadiumData] = useState<{ seats: Seat[]; maxRx: number; maxRy: number }>({ seats: [], maxRx: 0, maxRy: 0 });
+export function SeatMap({ zones, seats: apiSeats, selectedSeats, onToggleSeat, zoneFilter, liveUpdates }: Props) {
+  const [fallbackData, setFallbackData] = useState<{ seats: Seat[]; maxRx: number; maxRy: number }>({ seats: [], maxRx: 0, maxRy: 0 });
   const [hoveredSeat, setHoveredSeat] = useState<Seat | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    setStadiumData(generateStadiumData(zones));
+    setFallbackData(generateStadiumData(zones));
   }, [zones]);
+
+  const stadiumData = useMemo(() => {
+    if (apiSeats && apiSeats.length > 0) {
+      return mapApiSeats(apiSeats, fallbackData);
+    }
+    return fallbackData;
+  }, [apiSeats, fallbackData]);
 
   useEffect(() => {
     if (!containerRef.current || stadiumData.maxRx === 0) return;
@@ -244,7 +299,7 @@ export function SeatMap({ zones, selectedSeats, onToggleSeat, zoneFilter, liveUp
                 <div className="text-xs uppercase tracking-widest text-gray-400 font-bold mb-1.5">Tribune {hoveredSeat.section}</div>
                 <div className="text-base font-medium mb-2.5 whitespace-nowrap">Rang {hoveredSeat.row} · Place {hoveredSeat.num}</div>
                 <div className={`text-sm px-2.5 py-1 rounded-sm font-bold ${zi.color} text-white`}>
-                  {zi.name} — {zi.price}€
+                  {zi.name}, {zi.price}€
                 </div>
               </div>
             </div>

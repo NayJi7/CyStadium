@@ -40,7 +40,7 @@ export function AuroraBackground({ className = "" }: { className?: string }) {
         transition={{ duration: 32, repeat: Infinity, ease: "easeInOut" }}
       />
 
-      {/* Blob gold — échos du trophée */}
+      {/* Blob gold, échos du trophée */}
       <motion.div
         className="absolute bottom-[-240px] left-1/3 h-[640px] w-[640px] rounded-full blur-[140px]"
         style={{ background: "radial-gradient(circle, #fbbf24 0%, transparent 70%)", mixBlendMode: "screen", opacity: 0.6 }}

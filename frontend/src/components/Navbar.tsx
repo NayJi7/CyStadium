@@ -38,6 +38,23 @@ export function Navbar() {
     };
   }, []);
 
+  // Vérifie la session toutes les 30s, déclenche la bannière d'expiration si 401
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    const check = async () => {
+      if (cancelled) return;
+      try {
+        await api.me(session.sessionId);
+      } catch {
+        // 401 => clearSession + événement déja gérés dans api.ts
+      }
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [session]);
+
   const handleLogout = async () => {
     if (session) {
       try { await api.logout(session.sessionId); } catch { /* ignore */ }

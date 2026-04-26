@@ -116,6 +116,11 @@ class SessionManager(ttl: FiniteDuration, db: Database) extends Actor with Actor
     case ValidateSession(sessionId) =>
       sessions.get(sessionId) match {
         case Some(entry) if entry.expiresAt.isAfter(Instant.now()) =>
+          // Sliding window : l'activité du user reset le TTL.
+          entry.timer.cancel()
+          val newExpiresAt = Instant.now().plusMillis(ttl.toMillis)
+          val newTimer     = context.system.scheduler.scheduleOnce(ttl, self, SessionExpired(sessionId))
+          sessions += sessionId -> entry.copy(expiresAt = newExpiresAt, timer = newTimer)
           sender() ! SessionValid(entry.clientId)
         case _ =>
           sender() ! SessionInvalid
