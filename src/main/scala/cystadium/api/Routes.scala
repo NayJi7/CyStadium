@@ -1,7 +1,8 @@
 package cystadium.api
 
 import akka.actor.ActorRef
-import akka.http.scaladsl.model.StatusCodes
+import akka.http.scaladsl.model.headers.{`Access-Control-Allow-Credentials`, `Access-Control-Allow-Headers`, `Access-Control-Allow-Methods`, `Access-Control-Allow-Origin`, `Access-Control-Max-Age`, Origin}
+import akka.http.scaladsl.model.{HttpMethods, StatusCodes}
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.{ExceptionHandler, MissingHeaderRejection, RejectionHandler, Route}
 import akka.pattern.{AskTimeoutException, ask}
@@ -56,14 +57,38 @@ class Routes(
     authHelper.authenticated
 
   val all: Route =
-    handleExceptions(exceptionHandler) {
-      handleRejections(rejectionHandler) {
-        concat(
-          pathPrefix("api") {
-            concat(authRoutes, matchRoutes, reservationRoutes)
-          },
-          pathPrefix("ws") { wsRoutes }
-        )
+    cors {
+      handleExceptions(exceptionHandler) {
+        handleRejections(rejectionHandler) {
+          concat(
+            pathPrefix("api") {
+              concat(authRoutes, matchRoutes, reservationRoutes)
+            },
+            pathPrefix("ws") { wsRoutes }
+          )
+        }
+      }
+    }
+
+  // CORS minimal — autorise toute origine (dev). À restreindre en prod.
+  private val corsAllowHeaders =
+    `Access-Control-Allow-Headers`("Content-Type", "X-Session-Id", "Authorization")
+  private val corsAllowMethods = `Access-Control-Allow-Methods`(
+    HttpMethods.GET, HttpMethods.POST, HttpMethods.PUT, HttpMethods.DELETE, HttpMethods.OPTIONS
+  )
+  private val corsMaxAge = `Access-Control-Max-Age`(3600)
+
+  private def cors(inner: Route): Route =
+    optionalHeaderValueByType(Origin) { originOpt =>
+      val allowOrigin = originOpt
+        .flatMap(_.origins.headOption)
+        .map(o => `Access-Control-Allow-Origin`(o))
+        .getOrElse(`Access-Control-Allow-Origin`.*)
+
+      respondWithHeaders(allowOrigin, corsAllowHeaders, corsAllowMethods, `Access-Control-Allow-Credentials`(true)) {
+        options {
+          respondWithHeader(corsMaxAge) { complete(StatusCodes.OK) }
+        } ~ inner
       }
     }
 }

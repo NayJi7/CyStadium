@@ -38,11 +38,11 @@ object SessionManager {
   // Réponses internes des futures DB
   private final case class CredentialsCheck(
     requester: akka.actor.ActorRef,
-    result:    Either[String, (ClientId, String)] // username
+    result:    Either[String, (ClientId, String, Boolean)] // username, isAdmin
   )
   private final case class RegistrationDone(
     requester: akka.actor.ActorRef,
-    result:    Either[String, (ClientId, String)]
+    result:    Either[String, (ClientId, String, Boolean)]
   )
 }
 
@@ -64,18 +64,22 @@ class SessionManager(ttl: FiniteDuration, db: Database) extends Actor with Actor
       } else {
         val hash    = BCrypt.hashpw(password, BCrypt.gensalt(10))
         val newId   = UUID.randomUUID()
-        val newRow  = cystadium.db.ClientRow(newId, email.trim, name.trim, u, Some(hash))
+        val newRow  = cystadium.db.ClientRow(newId, email.trim, name.trim, u, Some(hash), isAdmin = false)
         val insert  = (Tables.clients += newRow).asTry
         db.run(insert).map {
-          case Success(_)  => RegistrationDone(requester, Right(newId -> u))
-          case Failure(_)  => RegistrationDone(requester, Left("username_or_email_taken"))
-        }.recover { case _ => RegistrationDone(requester, Left("db_error")) }
-          .pipeTo(self)
+          case Success(_)  => RegistrationDone(requester, Right((newId, u, false)))
+          case Failure(ex) =>
+            log.error(ex, "auth.register insert failed username={}", u)
+            RegistrationDone(requester, Left("username_or_email_taken"))
+        }.recover { case ex =>
+          log.error(ex, "auth.register db.run failed username={}", u)
+          RegistrationDone(requester, Left("db_error"))
+        }.pipeTo(self)
       }
 
-    case RegistrationDone(requester, Right((cid, uname))) =>
-      log.info("auth.register clientId={} username={}", cid, uname)
-      requester ! RegisterSuccess(cid, uname)
+    case RegistrationDone(requester, Right((cid, uname, admin))) =>
+      log.info("auth.register clientId={} username={} admin={}", cid, uname, admin)
+      requester ! RegisterSuccess(cid, uname, admin)
 
     case RegistrationDone(requester, Left(reason)) =>
       requester ! RegisterFailed(reason)
@@ -90,7 +94,7 @@ class SessionManager(ttl: FiniteDuration, db: Database) extends Actor with Actor
         db.run(q).map {
           case Some(row) =>
             val ok = row.passwordHash.exists(h => BCrypt.checkpw(password, h))
-            if (ok) CredentialsCheck(requester, Right(row.id -> row.username))
+            if (ok) CredentialsCheck(requester, Right((row.id, row.username, row.isAdmin)))
             else    CredentialsCheck(requester, Left("invalid_credentials"))
           case None =>
             CredentialsCheck(requester, Left("invalid_credentials"))
@@ -98,13 +102,13 @@ class SessionManager(ttl: FiniteDuration, db: Database) extends Actor with Actor
           .pipeTo(self)
       }
 
-    case CredentialsCheck(requester, Right((cid, uname))) =>
+    case CredentialsCheck(requester, Right((cid, uname, admin))) =>
       val sessionId = UUID.randomUUID()
       val expiresAt = Instant.now().plusMillis(ttl.toMillis)
       val timer     = context.system.scheduler.scheduleOnce(ttl, self, SessionExpired(sessionId))
       sessions += sessionId -> SessionEntry(cid, uname, expiresAt, timer)
-      log.info("session.open sessionId={} clientId={} username={}", sessionId, cid, uname)
-      requester ! LoginSuccess(sessionId, cid, uname)
+      log.info("session.open sessionId={} clientId={} username={} admin={}", sessionId, cid, uname, admin)
+      requester ! LoginSuccess(sessionId, cid, uname, admin)
 
     case CredentialsCheck(requester, Left(reason)) =>
       requester ! LoginFailed(reason)

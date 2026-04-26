@@ -32,6 +32,9 @@ libraryDependencies ++= Seq(
   // ── Hash de mots de passe ─────────────────────────────────────────────────
   "org.mindrot" % "jbcrypt" % "0.4",
 
+  // ── Logging (SLF4J + simple backend) ──────────────────────────────────────
+  "org.slf4j" % "slf4j-simple" % "2.0.13",
+
   // ── Tests ─────────────────────────────────────────────────────────────────
   "org.scalatest"     %% "scalatest"        % "3.2.18"   % Test,
   "com.typesafe.akka" %% "akka-testkit"        % akkaVersion % Test,

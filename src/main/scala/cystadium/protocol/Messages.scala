@@ -26,11 +26,11 @@ case object Locked extends SeatStatus
 // L'identifiant interne reste un UUID (ClientId) — utilisé partout en aval.
 
 case class Register(username: String, password: String, email: String, name: String)
-case class RegisterSuccess(clientId: ClientId, username: String)
+case class RegisterSuccess(clientId: ClientId, username: String, isAdmin: Boolean)
 case class RegisterFailed(reason: String)
 
 case class Login(username: String, password: String)
-case class LoginSuccess(sessionId: SessionId, clientId: ClientId, username: String)
+case class LoginSuccess(sessionId: SessionId, clientId: ClientId, username: String, isAdmin: Boolean)
 case class LoginFailed(reason: String)
 
 case class Logout(sessionId: SessionId)

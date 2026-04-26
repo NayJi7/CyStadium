@@ -19,6 +19,7 @@ import scala.util.{Failure, Success}
 
 object Main {
   def main(args: Array[String]): Unit = {
+    loadDotEnv()
     implicit val system: ActorSystem = ActorSystem("CyStadium")
     import system.dispatcher
 
@@ -57,4 +58,28 @@ object Main {
 
   private def toScala(d: java.time.Duration): FiniteDuration =
     FiniteDuration(d.toMillis, TimeUnit.MILLISECONDS)
+
+  // Charge .env (à la racine) en system properties — vu par HOCON via ${?KEY}.
+  // Ne remplace pas une variable déjà définie dans l'environnement.
+  private def loadDotEnv(): Unit = {
+    val f = new java.io.File(".env")
+    if (!f.isFile) return
+    val src = scala.io.Source.fromFile(f, "UTF-8")
+    try {
+      src.getLines().foreach { raw =>
+        val line = raw.trim
+        if (line.nonEmpty && !line.startsWith("#")) {
+          val eq = line.indexOf('=')
+          if (eq > 0) {
+            val key = line.substring(0, eq).trim
+            var value = line.substring(eq + 1).trim
+            if (value.length >= 2 && ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))))
+              value = value.substring(1, value.length - 1)
+            if (System.getenv(key) == null && System.getProperty(key) == null)
+              System.setProperty(key, value)
+          }
+        }
+      }
+    } finally src.close()
+  }
 }

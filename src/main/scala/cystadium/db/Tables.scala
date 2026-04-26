@@ -40,7 +40,8 @@ final case class ClientRow(
   email: String,
   name: String,
   username: String,
-  passwordHash: Option[String]
+  passwordHash: Option[String],
+  isAdmin: Boolean
 )
 
 final case class SessionRow(
@@ -101,8 +102,9 @@ class Clients(tag: Tag) extends CystadiumTable[ClientRow](tag, "clients") {
   def name         = column[String]("name")
   def username     = column[String]("username", O.Unique)
   def passwordHash = column[Option[String]]("password_hash")
+  def isAdmin      = column[Boolean]("is_admin")
   def * : ProvenShape[ClientRow] =
-    (id, email, name, username, passwordHash).mapTo[ClientRow]
+    (id, email, name, username, passwordHash, isAdmin).mapTo[ClientRow]
 }
 
 class Sessions(tag: Tag) extends CystadiumTable[SessionRow](tag, "sessions") {

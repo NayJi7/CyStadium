@@ -33,7 +33,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await api.login(username.trim(), password);
-      setSession({ sessionId: res.session_id, clientId: res.client_id, username: res.username });
+      setSession({ sessionId: res.session_id, clientId: res.client_id, username: res.username, isAdmin: res.is_admin });
       router.push("/matches");
     } catch (err) {
       setError(err instanceof ApiError && err.status === 401 ? "Pseudo ou mot de passe incorrect" : "Erreur réseau");
@@ -51,7 +51,7 @@ export default function LoginPage() {
     try {
       await api.register(username.trim(), password, email.trim(), name.trim());
       const res = await api.login(username.trim(), password);
-      setSession({ sessionId: res.session_id, clientId: res.client_id, username: res.username });
+      setSession({ sessionId: res.session_id, clientId: res.client_id, username: res.username, isAdmin: res.is_admin });
       router.push("/matches");
     } catch (err) {
       if (err instanceof ApiError) {

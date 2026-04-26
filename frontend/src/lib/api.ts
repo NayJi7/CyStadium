@@ -39,8 +39,8 @@ async function request<T>(path: string, opts: FetchOpts = {}): Promise<T> {
 }
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
-export type LoginResponse   = { session_id: string; client_id: string; username: string };
-export type RegisterResponse = { client_id: string; username: string };
+export type LoginResponse   = { session_id: string; client_id: string; username: string; is_admin: boolean };
+export type RegisterResponse = { client_id: string; username: string; is_admin: boolean };
 
 export const api = {
   register: (username: string, password: string, email: string, name: string) =>
