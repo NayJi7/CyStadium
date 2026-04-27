@@ -139,6 +139,36 @@ final class ReservationHandlerSpec
 
       requester.expectMsg(SeatsReleased(reserved.reservationId))
     }
+
+    "handle PaymentSuccess by confirming seats automatically" in {
+      val fixture = new Fixture
+      val handler = fixture.handler()
+      val requester = TestProbe()
+      val request = fixture.reserveSeatsRequest()
+      val reserved = fixture.createReservation(handler, requester, request)
+
+      requester.send(handler, PaymentSuccess(reserved.reservationId, "tx-1"))
+
+      fixture.seatA.expectMsg(ConfirmSeat(reserved.bookingId))
+      fixture.seatB.expectMsg(ConfirmSeat(reserved.bookingId))
+      fixture.seatA.reply(SeatConfirmedOk(fixture.seatAId))
+      fixture.seatB.reply(SeatConfirmedOk(fixture.seatBId))
+    }
+
+    "handle PaymentFailed by releasing seats automatically" in {
+      val fixture = new Fixture
+      val handler = fixture.handler()
+      val requester = TestProbe()
+      val request = fixture.reserveSeatsRequest()
+      val reserved = fixture.createReservation(handler, requester, request)
+
+      requester.send(handler, PaymentFailed(reserved.reservationId, "declined"))
+
+      fixture.seatA.expectMsg(ReleaseSeat(reserved.bookingId))
+      fixture.seatB.expectMsg(ReleaseSeat(reserved.bookingId))
+      fixture.seatA.reply(SeatReleasedOk(fixture.seatAId))
+      fixture.seatB.reply(SeatReleasedOk(fixture.seatBId))
+    }
   }
 
   private final class Fixture {

@@ -35,6 +35,7 @@ object ReservationHandler {
 
   private sealed trait ReservationStatus
   private case object Pending extends ReservationStatus
+  private case object PaidStatus extends ReservationStatus
   private case object ConfirmedStatus extends ReservationStatus
   private case object CancelledStatus extends ReservationStatus
 
@@ -276,18 +277,8 @@ final class ReservationHandler(
 
     case ConfirmReservation(reservationId) =>
       reservations.get(reservationId) match {
-        case Some(record) if record.status == Pending =>
-          context.actorOf(
-            ReservationFinalizationSession.props(
-              reservationId = reservationId,
-              bookingId = record.bookingId,
-              seatRefs = record.seatRefs,
-              replyTo = sender(),
-              parent = self,
-              action = ConfirmAction,
-              responseTimeout = responseTimeout
-            )
-          )
+        case Some(record) if record.status == Pending || record.status == PaidStatus =>
+          startFinalization(reservationId, record, sender(), ConfirmAction)
 
         case Some(record) if record.status == ConfirmedStatus =>
           sender() ! ReservationConfirmed(reservationId, ticketCode(reservationId))
@@ -301,18 +292,8 @@ final class ReservationHandler(
 
     case CancelReservation(reservationId, _) =>
       reservations.get(reservationId) match {
-        case Some(record) if record.status == Pending =>
-          context.actorOf(
-            ReservationFinalizationSession.props(
-              reservationId = reservationId,
-              bookingId = record.bookingId,
-              seatRefs = record.seatRefs,
-              replyTo = sender(),
-              parent = self,
-              action = ReleaseAction,
-              responseTimeout = responseTimeout
-            )
-          )
+        case Some(record) if record.status == Pending || record.status == PaidStatus =>
+          startFinalization(reservationId, record, sender(), ReleaseAction)
 
         case Some(record) if record.status == CancelledStatus =>
           sender() ! SeatsReleased(reservationId)
@@ -324,19 +305,25 @@ final class ReservationHandler(
           sender() ! Status.Failure(new NoSuchElementException(s"Reservation $reservationId not found"))
       }
 
+    case PaymentSuccess(reservationId, _) =>
+      reservations.get(reservationId).filter(_.status == Pending).foreach { record =>
+        reservations += reservationId -> record.copy(status = PaidStatus)
+        startFinalization(reservationId, record, context.system.deadLetters, ConfirmAction)
+      }
+
+    case PaymentFailed(reservationId, _) =>
+      reservations.get(reservationId).filter(r => r.status == Pending || r.status == PaidStatus).foreach { record =>
+        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction)
+      }
+
+    case PaymentTimeout(reservationId) =>
+      reservations.get(reservationId).filter(r => r.status == Pending || r.status == PaidStatus).foreach { record =>
+        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction)
+      }
+
     case ExpireReservation(reservationId) =>
       reservations.get(reservationId).filter(_.status == Pending).foreach { record =>
-        context.actorOf(
-          ReservationFinalizationSession.props(
-            reservationId = reservationId,
-            bookingId = record.bookingId,
-            seatRefs = record.seatRefs,
-            replyTo = context.system.deadLetters,
-            parent = self,
-            action = ReleaseAction,
-            responseTimeout = responseTimeout
-          )
-        )
+        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction)
       }
 
     case FinalizationSucceeded(reservationId, replyTo, ConfirmAction) =>
@@ -361,4 +348,22 @@ final class ReservationHandler(
 
   private def ticketCode(reservationId: ReservationId): String =
     s"TICKET-${reservationId.toString.take(8).toUpperCase}"
+
+  private def startFinalization(
+      reservationId: ReservationId,
+      record: ReservationRecord,
+      replyTo: ActorRef,
+      action: FinalizationAction
+  ): Unit =
+    context.actorOf(
+      ReservationFinalizationSession.props(
+        reservationId = reservationId,
+        bookingId = record.bookingId,
+        seatRefs = record.seatRefs,
+        replyTo = replyTo,
+        parent = self,
+        action = action,
+        responseTimeout = responseTimeout
+      )
+    )
 }
