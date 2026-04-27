@@ -1,0 +1,9 @@
+FROM eclipse-temurin:17-jre
+
+WORKDIR /app
+
+COPY . .
+
+EXPOSE 8080
+
+CMD ["sh", "-c", "echo 'Backend container is up. Add runtime command when API main is ready.' && tail -f /dev/null"]
