@@ -7,6 +7,8 @@
 target/
 project/target/
 project/project/
+.sbt-boot/
+.ivy2/
 .bsp/
 .metals/
 .scala-build/

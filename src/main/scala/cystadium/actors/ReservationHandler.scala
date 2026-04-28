@@ -13,14 +13,47 @@ object ReservationHandler {
       sessionManager: ActorRef,
       seatAllocator: ActorRef,
       seatRefResolver: SeatRefResolver,
+      repository: ReservationRepository = ReservationRepository.NoOp,
       reservationTtl: FiniteDuration = 10.minutes,
       responseTimeout: FiniteDuration = 5.seconds,
       pricing: Zone => Double = DefaultPricing.priceOf
   ): Props =
-    Props(new ReservationHandler(sessionManager, seatAllocator, seatRefResolver, reservationTtl, responseTimeout, pricing))
+    Props(new ReservationHandler(sessionManager, seatAllocator, seatRefResolver, repository, reservationTtl, responseTimeout, pricing))
 
   trait SeatRefResolver {
     def resolve(matchId: MatchId, zone: Zone, seatIds: Set[SeatId]): Map[SeatId, ActorRef]
+  }
+
+  final case class ReservationSnapshot(
+      reservationId: ReservationId,
+      bookingId: BookingId,
+      clientId: ClientId,
+      matchId: MatchId,
+      zone: Zone,
+      seatIds: Set[SeatId],
+      total: Double,
+      expiresAt: Instant,
+      status: String
+  )
+
+  trait ReservationRepository {
+    def createReservation(snapshot: ReservationSnapshot): Unit
+    def markPaid(reservationId: ReservationId, transactionId: String): Unit
+    def markPaymentFailed(reservationId: ReservationId, reason: String): Unit
+    def markPaymentTimeout(reservationId: ReservationId): Unit
+    def markConfirmed(reservationId: ReservationId, ticketCode: String): Unit
+    def markCancelled(reservationId: ReservationId, reason: String): Unit
+  }
+
+  object ReservationRepository {
+    object NoOp extends ReservationRepository {
+      override def createReservation(snapshot: ReservationSnapshot): Unit = ()
+      override def markPaid(reservationId: ReservationId, transactionId: String): Unit = ()
+      override def markPaymentFailed(reservationId: ReservationId, reason: String): Unit = ()
+      override def markPaymentTimeout(reservationId: ReservationId): Unit = ()
+      override def markConfirmed(reservationId: ReservationId, ticketCode: String): Unit = ()
+      override def markCancelled(reservationId: ReservationId, reason: String): Unit = ()
+    }
   }
 
   object DefaultPricing {
@@ -60,7 +93,7 @@ object ReservationHandler {
 
   private sealed trait FinalizationAction
   private case object ConfirmAction extends FinalizationAction
-  private case object ReleaseAction extends FinalizationAction
+  private final case class ReleaseAction(reason: String) extends FinalizationAction
 
   private object ReservationCreationSession {
     def props(
@@ -204,7 +237,7 @@ object ReservationHandler {
 
       action match {
         case ConfirmAction => seatRefs.values.foreach(_ ! ConfirmSeat(bookingId))
-        case ReleaseAction => seatRefs.values.foreach(_ ! ReleaseSeat(bookingId))
+        case ReleaseAction(_) => seatRefs.values.foreach(_ ! ReleaseSeat(bookingId))
       }
 
       if (pending.isEmpty) {
@@ -218,7 +251,7 @@ object ReservationHandler {
         pending -= seatId
         completeIfReady()
 
-      case SeatReleasedOk(seatId) if action == ReleaseAction && pending.contains(seatId) =>
+      case SeatReleasedOk(seatId) if action.isInstanceOf[ReleaseAction] && pending.contains(seatId) =>
         pending -= seatId
         completeIfReady()
 
@@ -239,6 +272,7 @@ final class ReservationHandler(
     sessionManager: ActorRef,
     seatAllocator: ActorRef,
     seatRefResolver: ReservationHandler.SeatRefResolver,
+    repository: ReservationHandler.ReservationRepository,
     reservationTtl: FiniteDuration,
     responseTimeout: FiniteDuration,
     pricing: Zone => Double
@@ -269,6 +303,7 @@ final class ReservationHandler(
     case ReservationCreated(record, replyTo) =>
       val expirationTask = context.system.scheduler.scheduleOnce(reservationTtl, self, ExpireReservation(record.reservationId))
       val persistedRecord = record.copy(expirationTask = Some(expirationTask))
+      repository.createReservation(snapshotOf(persistedRecord))
       reservations += record.reservationId -> persistedRecord
       replyTo ! SeatsReserved(record.reservationId, record.seatRefs.keySet, record.total, record.expiresAt)
 
@@ -290,10 +325,10 @@ final class ReservationHandler(
           sender() ! Status.Failure(new NoSuchElementException(s"Reservation $reservationId not found"))
       }
 
-    case CancelReservation(reservationId, _) =>
+    case CancelReservation(reservationId, reason) =>
       reservations.get(reservationId) match {
         case Some(record) if record.status == Pending || record.status == PaidStatus =>
-          startFinalization(reservationId, record, sender(), ReleaseAction)
+          startFinalization(reservationId, record, sender(), ReleaseAction(reason))
 
         case Some(record) if record.status == CancelledStatus =>
           sender() ! SeatsReleased(reservationId)
@@ -305,37 +340,43 @@ final class ReservationHandler(
           sender() ! Status.Failure(new NoSuchElementException(s"Reservation $reservationId not found"))
       }
 
-    case PaymentSuccess(reservationId, _) =>
+    case PaymentSuccess(reservationId, transactionId) =>
       reservations.get(reservationId).filter(_.status == Pending).foreach { record =>
+        repository.markPaid(reservationId, transactionId)
         reservations += reservationId -> record.copy(status = PaidStatus)
         startFinalization(reservationId, record, context.system.deadLetters, ConfirmAction)
       }
 
-    case PaymentFailed(reservationId, _) =>
+    case PaymentFailed(reservationId, reason) =>
       reservations.get(reservationId).filter(r => r.status == Pending || r.status == PaidStatus).foreach { record =>
-        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction)
+        repository.markPaymentFailed(reservationId, reason)
+        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction("payment-failed"))
       }
 
     case PaymentTimeout(reservationId) =>
       reservations.get(reservationId).filter(r => r.status == Pending || r.status == PaidStatus).foreach { record =>
-        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction)
+        repository.markPaymentTimeout(reservationId)
+        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction("payment-timeout"))
       }
 
     case ExpireReservation(reservationId) =>
       reservations.get(reservationId).filter(_.status == Pending).foreach { record =>
-        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction)
+        startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction("reservation-expired"))
       }
 
     case FinalizationSucceeded(reservationId, replyTo, ConfirmAction) =>
+      val code = ticketCode(reservationId)
       reservations.get(reservationId).foreach { record =>
         record.expirationTask.foreach(_.cancel())
+        repository.markConfirmed(reservationId, code)
         reservations += reservationId -> record.copy(status = ConfirmedStatus, expirationTask = None)
       }
-      replyTo ! ReservationConfirmed(reservationId, ticketCode(reservationId))
+      replyTo ! ReservationConfirmed(reservationId, code)
 
-    case FinalizationSucceeded(reservationId, replyTo, ReleaseAction) =>
+    case FinalizationSucceeded(reservationId, replyTo, ReleaseAction(reason)) =>
       reservations.get(reservationId).foreach { record =>
         record.expirationTask.foreach(_.cancel())
+        repository.markCancelled(reservationId, reason)
         reservations += reservationId -> record.copy(status = CancelledStatus, expirationTask = None)
       }
       if (replyTo != context.system.deadLetters) {
@@ -348,6 +389,19 @@ final class ReservationHandler(
 
   private def ticketCode(reservationId: ReservationId): String =
     s"TICKET-${reservationId.toString.take(8).toUpperCase}"
+
+  private def snapshotOf(record: ReservationRecord): ReservationSnapshot =
+    ReservationSnapshot(
+      reservationId = record.reservationId,
+      bookingId = record.bookingId,
+      clientId = record.clientId,
+      matchId = record.matchId,
+      zone = record.zone,
+      seatIds = record.seatRefs.keySet,
+      total = record.total,
+      expiresAt = record.expiresAt,
+      status = record.status.toString
+    )
 
   private def startFinalization(
       reservationId: ReservationId,

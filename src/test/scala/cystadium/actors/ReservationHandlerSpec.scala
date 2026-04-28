@@ -3,7 +3,7 @@ package cystadium.actors
 import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.{TestKit, TestProbe}
 import com.typesafe.config.ConfigFactory
-import cystadium.actors.ReservationHandler.SeatRefResolver
+import cystadium.actors.ReservationHandler.{ReservationRepository, ReservationSnapshot, SeatRefResolver}
 import cystadium.actors.SeatAllocator.{AllocateSeats, AllocationFailed, AllocationSucceeded}
 import cystadium.protocol._
 import org.scalatest.BeforeAndAfterAll
@@ -169,6 +169,52 @@ final class ReservationHandlerSpec
       fixture.seatA.reply(SeatReleasedOk(fixture.seatAId))
       fixture.seatB.reply(SeatReleasedOk(fixture.seatBId))
     }
+
+    "persist reservation and payment state changes through the repository contract" in {
+      val fixture = new Fixture
+      val handler = fixture.handler()
+      val requester = TestProbe()
+      val request = fixture.reserveSeatsRequest()
+      val reserved = fixture.createReservation(handler, requester, request)
+
+      fixture.repository.events should contain("create:Pending")
+
+      requester.send(handler, PaymentSuccess(reserved.reservationId, "tx-1"))
+      awaitAssert({
+        fixture.repository.events should contain("paid:tx-1")
+      }, 500.millis, 50.millis)
+
+      fixture.seatA.expectMsg(ConfirmSeat(reserved.bookingId))
+      fixture.seatB.expectMsg(ConfirmSeat(reserved.bookingId))
+      fixture.seatA.reply(SeatConfirmedOk(fixture.seatAId))
+      fixture.seatB.reply(SeatConfirmedOk(fixture.seatBId))
+
+      awaitAssert({
+        fixture.repository.events.exists(_.startsWith("confirmed:TICKET-")) shouldBe true
+      }, 500.millis, 50.millis)
+    }
+  }
+
+  private final class RecordingRepository extends ReservationRepository {
+    var events: Vector[String] = Vector.empty
+
+    override def createReservation(snapshot: ReservationSnapshot): Unit =
+      events :+= s"create:${snapshot.status}"
+
+    override def markPaid(reservationId: ReservationId, transactionId: String): Unit =
+      events :+= s"paid:$transactionId"
+
+    override def markPaymentFailed(reservationId: ReservationId, reason: String): Unit =
+      events :+= s"payment-failed:$reason"
+
+    override def markPaymentTimeout(reservationId: ReservationId): Unit =
+      events :+= "payment-timeout"
+
+    override def markConfirmed(reservationId: ReservationId, ticketCode: String): Unit =
+      events :+= s"confirmed:$ticketCode"
+
+    override def markCancelled(reservationId: ReservationId, reason: String): Unit =
+      events :+= s"cancelled:$reason"
   }
 
   private final class Fixture {
@@ -176,6 +222,7 @@ final class ReservationHandlerSpec
     val seatAllocator: TestProbe = TestProbe()
     val seatA: TestProbe = TestProbe()
     val seatB: TestProbe = TestProbe()
+    val repository = new RecordingRepository
 
     val clientId: ClientId = UUID.randomUUID()
     val matchId: MatchId = UUID.randomUUID()
@@ -194,6 +241,7 @@ final class ReservationHandlerSpec
           sessionManager = sessionManager.ref,
           seatAllocator = seatAllocator.ref,
           seatRefResolver = resolver,
+          repository = repository,
           reservationTtl = 10.minutes,
           responseTimeout = 500.millis
         )

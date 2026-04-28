@@ -11,6 +11,12 @@ object LTLProperties {
   def noDoubleReservation(seatIds: Set[String])(m: Marking): Boolean =
     seatIds.forall(seatId => m.get(s"Reserved_$seatId") <= 1)
 
+  def noDoubleReservationByBooking(seatToBookings: Map[String, Set[String]])(m: Marking): Boolean =
+    seatToBookings.forall { case (seatId, bookings) =>
+      val reservedByBooking = bookings.map(booking => m.get(s"Reserved_${seatId}_$booking")).sum
+      m.get(s"Reserved_$seatId") + reservedByBooking <= 1
+    }
+
   // S2: a seat has exactly one status at any point
   def seatHasExactlyOneStatus(seatIds: Set[String])(m: Marking): Boolean =
     seatIds.forall(seatId => sumTokensForSeat(m, seatId) == 1)
@@ -22,6 +28,12 @@ object LTLProperties {
     seatToBooking.forall { case (seatId, bookingId) =>
       val confirmed = m.get(s"Confirmed_$seatId") > 0
       !confirmed || hasPositiveToken(m, s"PaymentSuccess_$bookingId")
+    }
+
+  def confirmedImpliesSomePaymentSuccess(seatToBookings: Map[String, Set[String]])(m: Marking): Boolean =
+    seatToBookings.forall { case (seatId, bookings) =>
+      val confirmed = m.get(s"Confirmed_$seatId") > 0
+      !confirmed || bookings.exists(booking => hasPositiveToken(m, s"PaymentSuccess_$booking"))
     }
 
   // S4: payment failed implies seats are eventually free.
@@ -56,4 +68,7 @@ object LTLProperties {
   // V3: deadlock-free is delegated to analyzer, this helper just exposes naming.
   def noDeadlock(deadlockFree: Boolean): Boolean =
     deadlockFree
+
+  def noUnexpectedDeadlock(noUnexpectedDeadlock: Boolean): Boolean =
+    noUnexpectedDeadlock
 }

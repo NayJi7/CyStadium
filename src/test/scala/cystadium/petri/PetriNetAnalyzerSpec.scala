@@ -91,7 +91,49 @@ final class PetriNetAnalyzerSpec extends AnyWordSpec with Matchers {
       report.ltlOk("S4_failed_eventually_release") shouldBe true
       report.ltlOk("V1_waiting_eventually_resolves") shouldBe true
       report.ltlOk("V2_waiting_clears") shouldBe true
-      report.ltlOk("V3_no_deadlock") shouldBe false
+      report.ltlOk("V3_no_unexpected_deadlock") shouldBe false
+      report.unexpectedDeadlocks should be > 0
+    }
+
+    "analyze the CyStadium model with three seats and two concurrent clients" in {
+      val (cystadiumNet, initialMarking) = CyStadiumPetriModel.build()
+
+      val terminalPredicate: Marking => Boolean = marking =>
+        CyStadiumPetriModel.seatIds.forall(seatId => marking.get(s"Reserved_$seatId") == 0) &&
+          CyStadiumPetriModel.bookingIds.forall { bookingId =>
+            marking.get(s"WaitingForPayment_$bookingId") == 0 &&
+            marking.get(s"PaymentFailed_$bookingId") == 0
+          }
+
+      val report = PetriNetAnalyzer.analyze(
+        net = cystadiumNet,
+        m0 = initialMarking,
+        invariants = Map(
+          "S1_no_double_reservation" -> LTLProperties.noDoubleReservation(CyStadiumPetriModel.seatIds),
+          "S2_single_status" -> LTLProperties.seatHasExactlyOneStatus(CyStadiumPetriModel.seatIds),
+          "S3_confirmed_implies_paid" ->
+            LTLProperties.confirmedImpliesSomePaymentSuccess(CyStadiumPetriModel.seatToBookings)
+        ),
+        ltlChecks = Map(
+          "S4_failed_eventually_release" -> (reachable =>
+            LTLProperties.paymentFailedEventuallyReleased(reachable, CyStadiumPetriModel.bookingToSeats)),
+          "V1_waiting_eventually_resolves" -> (reachable =>
+            LTLProperties.waitingEventuallyResolves(reachable, CyStadiumPetriModel.waitingPlaces)),
+          "V2_waiting_clears" -> (reachable =>
+            LTLProperties.waitingEventuallyResolves(reachable, CyStadiumPetriModel.waitingPlaces))
+        ),
+        terminalPredicate = terminalPredicate
+      )
+
+      report.reachableStates should be > 1
+      report.bounded shouldBe true
+      report.invariantsOk.values.forall(identity) shouldBe true
+      report.ltlOk("S4_failed_eventually_release") shouldBe true
+      report.ltlOk("V1_waiting_eventually_resolves") shouldBe true
+      report.ltlOk("V2_waiting_clears") shouldBe true
+      report.ltlOk("V3_no_unexpected_deadlock") shouldBe true
+      report.terminalDeadlocks should be > 0
+      report.unexpectedDeadlocks shouldBe 0
     }
   }
 }
