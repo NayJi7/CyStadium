@@ -32,6 +32,7 @@ class Routes(
   private val authRoutes        = new AuthRoutes(sessionManager, authHelper.authenticated, db).routes
   private val matchRoutes       = new MatchRoutes(matchManager, matchManagerMap, db).routes
   private val reservationRoutes = new ReservationRoutes(reservationHandler, paymentGateway, db, authHelper.authenticated).routes
+  private val adminRoutes       = new AdminRoutes(sessionManager, matchManagerMap, db).routes
   private val wsRoutes          = new WebSocketHandler(system).routes
 
   val exceptionHandler: ExceptionHandler = ExceptionHandler {
@@ -56,7 +57,7 @@ class Routes(
         handleRejections(rejectionHandler) {
           concat(
             pathPrefix("api") {
-              concat(authRoutes, matchRoutes, reservationRoutes)
+              concat(authRoutes, matchRoutes, reservationRoutes, adminRoutes)
             },
             pathPrefix("ws") { wsRoutes }
           )
