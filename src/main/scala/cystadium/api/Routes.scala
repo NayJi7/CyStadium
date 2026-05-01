@@ -29,7 +29,7 @@ class Routes(
   import system.dispatcher
 
   private val authHelper        = new AuthHelper(sessionManager)
-  private val authRoutes        = new AuthRoutes(sessionManager, authHelper.authenticated).routes
+  private val authRoutes        = new AuthRoutes(sessionManager, authHelper.authenticated, db).routes
   private val matchRoutes       = new MatchRoutes(matchManager, matchManagerMap, db).routes
   private val reservationRoutes = new ReservationRoutes(reservationHandler, paymentGateway, db, authHelper.authenticated).routes
   private val wsRoutes          = new WebSocketHandler(system).routes

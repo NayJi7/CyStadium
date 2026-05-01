@@ -10,6 +10,9 @@ import cystadium.json.Codecs._
 import cystadium.protocol._
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
 import io.circe.Json
+import cystadium.db.Tables
+import slick.jdbc.PostgresProfile.api._
+import scala.concurrent.ExecutionContext
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AuthRoutes — Adam
@@ -21,8 +24,9 @@ import io.circe.Json
 
 class AuthRoutes(
   sessionManager: ActorRef,
-  authenticated:  akka.http.scaladsl.server.Directive1[ClientId]
-)(implicit askTimeout: Timeout) {
+  authenticated:  akka.http.scaladsl.server.Directive1[ClientId],
+  db:             slick.jdbc.PostgresProfile.backend.Database
+)(implicit askTimeout: Timeout, ec: ExecutionContext) {
 
   val routes: Route =
     pathPrefix("auth") {
@@ -69,7 +73,15 @@ class AuthRoutes(
         path("me") {
           get {
             authenticated { clientId =>
-              complete(StatusCodes.OK -> Json.obj("client_id" -> Json.fromString(clientId.toString)))
+              onSuccess(db.run(Tables.clients.filter(_.id === clientId).result.headOption)) {
+                case Some(c) =>
+                  complete(StatusCodes.OK -> Json.obj(
+                    "client_id" -> Json.fromString(clientId.toString),
+                    "is_admin"  -> Json.fromBoolean(c.isAdmin)
+                  ))
+                case None =>
+                  complete(StatusCodes.Unauthorized -> unauthorized)
+              }
             }
           }
         }
