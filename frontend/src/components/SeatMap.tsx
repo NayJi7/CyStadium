@@ -20,13 +20,12 @@ export type Seat = {
 
 export type Zones = Record<string, number>;
 
-const ZONE_CAPACITY: Record<Zone, number> = { VIP: 30, Or: 150, Standard: 400, Populaire: 800 };
-const TOTAL_CAPACITY = Object.values(ZONE_CAPACITY).reduce((a, b) => a + b, 0);
+const DEFAULT_TOTAL_CAPACITY = 1380;
 
-function generateStadiumData(availableCounts: Zones) {
+function generateStadiumData(availableCounts: Zones, totalCapacity: number = DEFAULT_TOTAL_CAPACITY) {
   const seats: Seat[] = [];
   let seatIdCounter = 1;
-  let remainingSeats = TOTAL_CAPACITY;
+  let remainingSeats = totalCapacity;
   const availableToPlace: Record<string, number> = { ...availableCounts };
   let r = 0;
 
@@ -171,8 +170,13 @@ export function SeatMap({ zones, seats: apiSeats, selectedSeats, onToggleSeat, z
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    setFallbackData(generateStadiumData(zones));
-  }, [zones]);
+    // Si on a les vrais sièges depuis l'API, générer exactement ce nombre de positions
+    // Sinon utiliser le total par défaut (1380 pour un grand stade)
+    const totalCapacity = apiSeats && apiSeats.length > 0
+      ? apiSeats.length
+      : DEFAULT_TOTAL_CAPACITY;
+    setFallbackData(generateStadiumData(zones, totalCapacity));
+  }, [zones, apiSeats?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stadiumData = useMemo(() => {
     if (apiSeats && apiSeats.length > 0) {
