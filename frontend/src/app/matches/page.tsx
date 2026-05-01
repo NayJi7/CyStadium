@@ -14,6 +14,23 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 const ZONE_ORDER = ["VIP", "Or", "Standard", "Populaire"] as const;
 
+// Pool d'images de stades/matchs depuis Unsplash
+const STADIUM_IMAGES = [
+  "https://images.unsplash.com/photo-1470229538611-16ba8c7ffbd7?w=800&q=70", // stade plein vue générale
+  "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=800&q=70", // stade nuit vue aérienne
+  "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&q=70", // stade vide vu du haut
+  "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=800&q=70", // ambiance match
+  "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&q=70", // joueurs sur terrain
+  "https://images.unsplash.com/photo-1551958219-acbc595d9e9d?w=800&q=70", // match de nuit
+  "https://images.unsplash.com/photo-1489944440615-453fc2b6a9a9?w=800&q=70", // pelouse gros plan
+  "https://images.unsplash.com/photo-1537167117046-81b43de1abb3?w=800&q=70", // tribune supporters
+];
+
+function pickImage(id: string): string {
+  const hash = id.split("").reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) >>> 0, 0);
+  return STADIUM_IMAGES[hash % STADIUM_IMAGES.length];
+}
+
 function fmtDate(raw: string | number): string {
   try {
     const d = new Date(raw);
@@ -45,7 +62,16 @@ function MatchCard({ m }: { m: MatchItem }) {
     >
       <div className="pointer-events-none absolute -left-16 -top-16 h-40 w-40 rounded-full bg-cyan-400/0 blur-3xl transition-all duration-500 group-hover:bg-cyan-400/15" />
       <div className="relative h-44 overflow-hidden bg-navy-900">
-        <div className="absolute inset-0 bg-gradient-to-b from-navy-950/40 via-navy-950/20 to-navy-900" />
+        {/* Image de stade en fond */}
+        <Image
+          src={pickImage(m.id)}
+          alt=""
+          fill
+          sizes="(max-width: 768px) 100vw, 33vw"
+          className="object-cover opacity-40 transition-opacity duration-500 group-hover:opacity-55 scale-105 group-hover:scale-100 transition-transform duration-700"
+          unoptimized
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-navy-950/60 via-navy-950/30 to-navy-900" />
 
         {m.highlight && (
           <span className="absolute left-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-full bg-cyan-400 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-navy-950 shadow-glow">
