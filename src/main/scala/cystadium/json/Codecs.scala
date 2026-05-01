@@ -104,6 +104,26 @@ object Codecs {
   implicit val reservationSeatDtoEncoder: Encoder[ReservationSeatDto] = deriveConfiguredEncoder
   implicit val reservationDtoEncoder: Encoder[ReservationDto]         = deriveConfiguredEncoder
 
+  // ── Admin DTOs ────────────────────────────────────────────────────────────
+  import cystadium.api.{
+    CreateMatchRequest, UpdateMatchRequest, PatchUserRequest,
+    KpisDto, DayCountDto, ZoneOccupancyDto, MatchRevenueDto, AdminStatsDto,
+    AdminMatchDto, AdminUserDto, AdminReservationDto
+  }
+
+  implicit val createMatchRequestDecoder: Decoder[CreateMatchRequest]   = deriveConfiguredDecoder
+  implicit val updateMatchRequestDecoder: Decoder[UpdateMatchRequest]   = deriveConfiguredDecoder
+  implicit val patchUserRequestDecoder: Decoder[PatchUserRequest]       = deriveConfiguredDecoder
+
+  implicit val kpisDtoEncoder: Encoder[KpisDto]                         = deriveConfiguredEncoder
+  implicit val dayCountDtoEncoder: Encoder[DayCountDto]                 = deriveConfiguredEncoder
+  implicit val zoneOccupancyDtoEncoder: Encoder[ZoneOccupancyDto]       = deriveConfiguredEncoder
+  implicit val matchRevenueDtoEncoder: Encoder[MatchRevenueDto]         = deriveConfiguredEncoder
+  implicit val adminStatsDtoEncoder: Encoder[AdminStatsDto]             = deriveConfiguredEncoder
+  implicit val adminMatchDtoEncoder: Encoder[AdminMatchDto]             = deriveConfiguredEncoder
+  implicit val adminUserDtoEncoder: Encoder[AdminUserDto]               = deriveConfiguredEncoder
+  implicit val adminReservationDtoEncoder: Encoder[AdminReservationDto] = deriveConfiguredEncoder
+
   // ── Réponses d'erreur standard ────────────────────────────────────────────
   def errorJson(message: String): Json =
     Json.obj("error" -> Json.fromString(message))
