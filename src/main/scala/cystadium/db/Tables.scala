@@ -22,7 +22,8 @@ abstract class CystadiumTable[T](tag: Tag, name: String) extends Table[T](tag, n
 // ── Rows ─────────────────────────────────────────────────────────────────────
 final case class MatchRow(
   id: UUID, homeTeam: String, awayTeam: String,
-  matchDate: Instant, stadium: String, status: String
+  matchDate: Instant, stadium: String, status: String,
+  city: Option[String], stage: Option[String], highlight: Boolean
 )
 
 final case class ZoneRow(
@@ -68,8 +69,11 @@ class Matches(tag: Tag) extends CystadiumTable[MatchRow](tag, "matches") {
   def matchDate = column[Instant]("match_date")
   def stadium   = column[String]("stadium")
   def status    = column[String]("status")
+  def city      = column[Option[String]]("city")
+  def stage     = column[Option[String]]("stage")
+  def highlight = column[Boolean]("highlight")
   def * : ProvenShape[MatchRow] =
-    (id, homeTeam, awayTeam, matchDate, stadium, status).mapTo[MatchRow]
+    (id, homeTeam, awayTeam, matchDate, stadium, status, city, stage, highlight).mapTo[MatchRow]
 }
 
 class Zones(tag: Tag) extends CystadiumTable[ZoneRow](tag, "zones") {
