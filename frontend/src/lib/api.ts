@@ -75,20 +75,36 @@ export type ZoneInfo = {
 export type SeatInfo = {
   seat_id: string;
   label?: string;
-  row: number;
+  row: string;        // char: 'A', 'B', … (depuis la DB)
   number: number;
   zone: string;
   status: string;
   section?: string;
 };
 
+// Type retourné par GET /api/reservations et GET /api/reservations/{id}
+export type ReservationSeatInfo = {
+  seat_id: string;
+  label: string;
+  zone: string;
+  status: string;
+};
+
 export type ReservationItem = {
   reservation_id: string;
   match_id: string;
-  seats: SeatInfo[];
+  seats: ReservationSeatInfo[];
   total: number;
   status: string;
-  expires_at?: string;
+  expires_at?: number;  // epoch millis
+};
+
+// Type retourné par POST /api/reservations (SeatsReserved)
+export type SeatsReservedResponse = {
+  reservation_id: string;
+  seat_ids: string[];
+  total: number;
+  expires_at: number;
 };
 
 // ── API ──────────────────────────────────────────────────────────────────────
@@ -129,7 +145,7 @@ export const api = {
 
   // Reservations
   createReservation: (matchId: string, zone: string, seatIds: string[], sessionId: string) =>
-    request<ReservationItem>("/api/reservations", {
+    request<SeatsReservedResponse>("/api/reservations", {
       method: "POST",
       sessionId,
       body: { match_id: matchId, zone, seat_ids: seatIds, session_id: sessionId },

@@ -97,46 +97,58 @@ function generateStadiumData(availableCounts: Zones) {
   return { seats, maxRx, maxRy };
 }
 
-/** Map real API seat data into the internal Seat format, placing them in the stadium layout. */
-function mapApiSeats(apiSeats: SeatInfo[], fallbackData: { seats: Seat[]; maxRx: number; maxRy: number }): { seats: Seat[]; maxRx: number; maxRy: number } {
-  // Create a lookup from the generated layout by (section, row, number) to get x/y/rotation
-  const layoutMap = new Map<string, Seat>();
+/**
+ * Map real API seat data into the internal Seat format.
+ * Distribue les sièges API dans les positions générées par zone (index-based),
+ * car la DB ne stocke pas les coordonnées x/y/rotation du plan interactif.
+ */
+function mapApiSeats(
+  apiSeats: SeatInfo[],
+  fallbackData: { seats: Seat[]; maxRx: number; maxRy: number }
+): { seats: Seat[]; maxRx: number; maxRy: number } {
+  // Grouper les sièges API par zone
+  const apiByZone = new Map<string, SeatInfo[]>();
+  for (const s of apiSeats) {
+    const z = s.zone;
+    if (!apiByZone.has(z)) apiByZone.set(z, []);
+    apiByZone.get(z)!.push(s);
+  }
+
+  // Grouper les positions générées par zone
+  const layoutByZone = new Map<string, Seat[]>();
   for (const s of fallbackData.seats) {
-    layoutMap.set(`${s.section}-${s.row}-${s.num}`, s);
+    if (!layoutByZone.has(s.zone)) layoutByZone.set(s.zone, []);
+    layoutByZone.get(s.zone)!.push(s);
   }
 
   const mapped: Seat[] = [];
-  const usedLayoutIndices = new Set<string>();
+  const usedLayoutIds = new Set<string>();
 
-  for (const apiSeat of apiSeats) {
-    const zone = (apiSeat.zone as Zone) ?? "Standard";
-    const section = apiSeat.section ?? "Est";
-    const row = apiSeat.row ?? 1;
-    const num = apiSeat.number ?? 1;
-    const key = `${section}-${row}-${num}`;
-
-    // Try to find position in generated layout
-    const layoutSeat = layoutMap.get(key);
-    usedLayoutIndices.add(key);
-
-    mapped.push({
-      id: apiSeat.seat_id,
-      section,
-      row,
-      num,
-      x: layoutSeat?.x ?? 0,
-      y: layoutSeat?.y ?? 0,
-      rotation: layoutSeat?.rotation ?? 0,
-      zone,
-      status: apiSeat.status === "free" ? "available" : "occupied",
+  // Assigner chaque siège API à la position générée de même index dans sa zone
+  for (const [zone, zoneApiSeats] of apiByZone) {
+    const layoutSeats = layoutByZone.get(zone as Zone) ?? [];
+    zoneApiSeats.forEach((apiSeat, idx) => {
+      const layoutSeat = layoutSeats[idx];
+      if (!layoutSeat) return;
+      usedLayoutIds.add(layoutSeat.id);
+      mapped.push({
+        id: apiSeat.seat_id,
+        section: layoutSeat.section,
+        row: layoutSeat.row,
+        num: layoutSeat.num,
+        x: layoutSeat.x,
+        y: layoutSeat.y,
+        rotation: layoutSeat.rotation,
+        zone: zone as Zone,
+        status: apiSeat.status === "free" ? "available" : "occupied",
+      });
     });
   }
 
-  // Add remaining generated seats that weren't covered by API data
+  // Garder les positions non couvertes par l'API (siège fictif, display only)
   for (const s of fallbackData.seats) {
-    const key = `${s.section}-${s.row}-${s.num}`;
-    if (!usedLayoutIndices.has(key)) {
-      mapped.push(s);
+    if (!usedLayoutIds.has(s.id)) {
+      mapped.push({ ...s, status: "occupied" });
     }
   }
 

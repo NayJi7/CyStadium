@@ -18,27 +18,40 @@ export const ZONE_META: Record<
 type Props = {
   selected: Zone | null;
   onChange: (z: Zone | null) => void;
+  availability?: Record<string, number>;
   className?: string;
 };
 
-export function ZoneSelector({ selected, onChange, className }: Props) {
+export function ZoneSelector({ selected, onChange, availability, className }: Props) {
   return (
     <div className={className ?? "flex flex-col gap-2"}>
       {(["Populaire", "Standard", "Or", "VIP"] as Zone[]).map((zoneKey) => {
         const zone = ZONE_META[zoneKey];
         const isActive = selected === zone.name;
+        const avail = availability?.[zone.name];
+        const soldOut = avail !== undefined && avail === 0;
         return (
           <button
             key={zone.id}
+            disabled={soldOut}
             className={`flex items-center gap-3 text-base px-4 py-2 rounded-lg cursor-pointer transition-all text-left ${
-              isActive ? "ring-2 ring-white/50 bg-white/10 backdrop-blur-sm" : "bg-white/[0.04] backdrop-blur-sm hover:bg-white/10"
+              soldOut
+                ? "opacity-40 cursor-not-allowed bg-white/[0.02]"
+                : isActive
+                ? "ring-2 ring-white/50 bg-white/10 backdrop-blur-sm"
+                : "bg-white/[0.04] backdrop-blur-sm hover:bg-white/10"
             }`}
-            onClick={() => onChange(isActive ? null : zone.name)}
+            onClick={() => !soldOut && onChange(isActive ? null : zone.name)}
           >
-            <div className={`w-6 h-7 rounded-t-[7px] rounded-b-[3px] border-t-[5px] border-x-2 border-b-2 ${zone.seatBg} ${zone.seatBorder}`} />
-            <span className="text-gray-200 font-medium">
+            <div className={`w-6 h-7 flex-shrink-0 rounded-t-[7px] rounded-b-[3px] border-t-[5px] border-x-2 border-b-2 ${zone.seatBg} ${zone.seatBorder}`} />
+            <span className="text-gray-200 font-medium flex-1">
               {zone.name} <span className="text-gray-500">({zone.price}€)</span>
             </span>
+            {avail !== undefined && (
+              <span className={`text-xs tabular-nums font-mono ${soldOut ? "text-red-400/60" : "text-white/40"}`}>
+                {avail}
+              </span>
+            )}
           </button>
         );
       })}

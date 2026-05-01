@@ -4,7 +4,7 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
-import { api, ApiError, openLiveSocket, type LiveEvent, type MatchItem, type SeatInfo } from "@/lib/api";
+import { api, ApiError, openLiveSocket, type LiveEvent, type MatchItem, type SeatInfo, type SeatsReservedResponse } from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 import { Flag } from "@/components/Flag";
 import { ZoneSelector, ZONE_META, Zone } from "@/components/ZoneSelector";
@@ -106,7 +106,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
     try {
       const zone = selectedSeats[0].zone;
       const seatIds = selectedSeats.map((s) => s.id);
-      const res = await api.createReservation(params.id, zone, seatIds, session);
+      const res = await api.createReservation(params.id, zone, seatIds, session) as SeatsReservedResponse;
       setPayment({ reservationId: res.reservation_id, amount: totalPrice });
     } catch (e) {
       alert(e instanceof ApiError ? `Erreur: ${e.status}` : "Erreur lors de la reservation");
@@ -189,7 +189,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
         </div>
 
         <div className="absolute left-6 top-1/2 -translate-y-1/2 z-20 pointer-events-auto">
-          <ZoneSelector selected={zoneFilter} onChange={setZoneFilter} />
+          <ZoneSelector selected={zoneFilter} onChange={setZoneFilter} availability={zones ?? undefined} />
         </div>
 
         <div className="absolute top-14 right-4 z-30 w-80">
