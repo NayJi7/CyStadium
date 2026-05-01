@@ -42,6 +42,4 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-http-testkit"   % akkaHttpVersion % Test,
 )
 
-// Nécessaire pour circe-generic-extras (macros @ConfiguredJsonCodec)
-// Scala 2.13 : paradise est intégré au compilateur via -Ymacro-annotations.
 scalacOptions += "-Ymacro-annotations"
