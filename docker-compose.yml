@@ -1,5 +1,3 @@
-version: "3.9"
-
 # PostgreSQL est hébergé sur Supabase — plus besoin de service db local.
 # La DB est partagée par tout le groupe via les credentials dans .env
 
