@@ -6,27 +6,92 @@ import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import akka.pattern.ask
 import akka.util.Timeout
+import cystadium.db.Tables
 import cystadium.json.Codecs._
 import cystadium.protocol._
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
+import slick.jdbc.PostgresProfile.api._
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MatchRoutes — Adam
-// GET /api/matches/{matchId} → CheckAvailability(matchId) → AvailabilityResult
-// Le ActorRef matchManager sera fourni par le Supervisor collectif
-// (équipe Eléonore/Inès) une fois MatchManager prêt.
-// ─────────────────────────────────────────────────────────────────────────────
+import scala.concurrent.ExecutionContext
 
-class MatchRoutes(matchManager: ActorRef)(implicit askTimeout: Timeout) {
+class MatchRoutes(
+  matchManager:    ActorRef,
+  matchManagerMap: Map[MatchId, ActorRef],
+  db:              slick.jdbc.PostgresProfile.backend.Database
+)(implicit askTimeout: Timeout, ec: ExecutionContext) {
 
   val routes: Route =
     pathPrefix("matches") {
-      path(JavaUUID) { matchId =>
-        get {
-          onSuccess((matchManager ? CheckAvailability(matchId)).mapTo[AvailabilityResult]) { r =>
-            complete(StatusCodes.OK -> r)
+      concat(
+        pathEndOrSingleSlash {
+          get {
+            onSuccess(db.run(Tables.matches.result)) { rows =>
+              val dtos = rows.map(r => MatchDto(
+                id       = r.id,
+                homeTeam = r.homeTeam,
+                awayTeam = r.awayTeam,
+                date     = r.matchDate.toEpochMilli,
+                stadium  = r.stadium,
+                status   = r.status
+              ))
+              complete(StatusCodes.OK -> dtos)
+            }
+          }
+        },
+        path(JavaUUID) { matchId =>
+          get {
+            matchManagerMap.get(matchId) match {
+              case None =>
+                complete(StatusCodes.NotFound -> errorJson(s"Match $matchId introuvable"))
+              case Some(mm) =>
+                onSuccess((mm ? CheckAvailability(matchId)).mapTo[AvailabilityResult]) { r =>
+                  complete(StatusCodes.OK -> r)
+                }
+            }
+          }
+        },
+        path(JavaUUID / "zones") { matchId =>
+          get {
+            val zonesFuture = db.run(Tables.zones.filter(_.matchId === matchId).result)
+            matchManagerMap.get(matchId) match {
+              case None =>
+                onSuccess(zonesFuture) { zones =>
+                  complete(StatusCodes.OK -> zones.map(z => ZoneDto(z.id, z.name, z.price.toDouble, 0)))
+                }
+              case Some(mm) =>
+                val availFuture = (mm ? CheckAvailability(matchId)).mapTo[AvailabilityResult]
+                onSuccess(for { z <- zonesFuture; a <- availFuture } yield (z, a)) {
+                  case (zones, avail) =>
+                    val dispoByName = avail.zones.map { case (z, n) => zoneToName(z) -> n }
+                    val dtos = zones.map(z =>
+                      ZoneDto(z.id, z.name, z.price.toDouble, dispoByName.getOrElse(z.name, 0))
+                    )
+                    complete(StatusCodes.OK -> dtos)
+                }
+            }
+          }
+        },
+        path(JavaUUID / "seats") { matchId =>
+          get {
+            val query = for {
+              seat <- Tables.seats
+              zone <- Tables.zones if zone.id === seat.zoneId && zone.matchId === matchId
+            } yield (seat, zone.name)
+            onSuccess(db.run(query.result)) { rows =>
+              val dtos = rows.map { case (s, zoneName) =>
+                SeatDto(s.id, s.label, s.row, s.number, zoneName, s.status, "General")
+              }
+              complete(StatusCodes.OK -> dtos)
+            }
           }
         }
-      }
+      )
     }
+
+  private def zoneToName(z: Zone): String = z match {
+    case VIP       => "VIP"
+    case Or        => "Or"
+    case Standard  => "Standard"
+    case Populaire => "Populaire"
+  }
 }

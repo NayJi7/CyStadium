@@ -95,6 +95,15 @@ object Codecs {
   // ── Événement WebSocket ────────────────────────────────────────────────────
   implicit val seatStatusEventEncoder: Encoder[SeatStatusEvent] = deriveConfiguredEncoder
 
+  // ── DTOs HTTP (MatchRoutes / ReservationRoutes) ────────────────────────────
+  import cystadium.api.{MatchDto, ZoneDto, SeatDto, ReservationDto, ReservationSeatDto}
+
+  implicit val matchDtoEncoder: Encoder[MatchDto]                     = deriveConfiguredEncoder
+  implicit val zoneDtoEncoder: Encoder[ZoneDto]                       = deriveConfiguredEncoder
+  implicit val seatDtoEncoder: Encoder[SeatDto]                       = deriveConfiguredEncoder
+  implicit val reservationSeatDtoEncoder: Encoder[ReservationSeatDto] = deriveConfiguredEncoder
+  implicit val reservationDtoEncoder: Encoder[ReservationDto]         = deriveConfiguredEncoder
+
   // ── Réponses d'erreur standard ────────────────────────────────────────────
   def errorJson(message: String): Json =
     Json.obj("error" -> Json.fromString(message))

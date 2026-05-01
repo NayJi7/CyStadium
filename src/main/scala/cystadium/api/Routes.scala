@@ -15,28 +15,24 @@ import java.util.UUID
 import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Routes — Adam
-// Agrège toutes les routes HTTP et expose les helpers partagés :
-//   - authenticated(clientId => Route) : middleware auth via header X-Session-Id
-//   - exceptionHandler / rejectionHandler : erreurs uniformes en JSON
-// ─────────────────────────────────────────────────────────────────────────────
-
 class Routes(
   sessionManager:     ActorRef,
   matchManager:       ActorRef,
+  matchManagerMap:    Map[MatchId, ActorRef],
   reservationHandler: ActorRef,
   paymentGateway:     ActorRef,
+  db:                 slick.jdbc.PostgresProfile.backend.Database,
   askTimeoutDuration: FiniteDuration
 )(implicit system: akka.actor.ActorSystem) {
-  implicit val askTimeout: Timeout = Timeout(askTimeoutDuration)
 
-  private val authHelper         = new AuthHelper(sessionManager)
-  private val authRoutes         = new AuthRoutes(sessionManager, authHelper.authenticated).routes
-  private val matchRoutes        = new MatchRoutes(matchManager).routes
-  private val reservationRoutes  =
-    new ReservationRoutes(reservationHandler, paymentGateway, authHelper.authenticated).routes
-  private val wsRoutes           = new WebSocketHandler(system).routes
+  implicit val askTimeout: Timeout = Timeout(askTimeoutDuration)
+  import system.dispatcher
+
+  private val authHelper        = new AuthHelper(sessionManager)
+  private val authRoutes        = new AuthRoutes(sessionManager, authHelper.authenticated).routes
+  private val matchRoutes       = new MatchRoutes(matchManager, matchManagerMap, db).routes
+  private val reservationRoutes = new ReservationRoutes(reservationHandler, paymentGateway, db, authHelper.authenticated).routes
+  private val wsRoutes          = new WebSocketHandler(system).routes
 
   val exceptionHandler: ExceptionHandler = ExceptionHandler {
     case _: AskTimeoutException =>
@@ -45,14 +41,12 @@ class Routes(
 
   val rejectionHandler: RejectionHandler =
     RejectionHandler.newBuilder()
-      .handle {
-        case MissingHeaderRejection("X-Session-Id") =>
-          complete(StatusCodes.Unauthorized -> unauthorized)
+      .handle { case MissingHeaderRejection("X-Session-Id") =>
+        complete(StatusCodes.Unauthorized -> unauthorized)
       }
       .handleNotFound(complete(StatusCodes.NotFound -> notFound))
       .result()
 
-  // À utiliser dans les futures routes protégées : authenticated { clientId => ... }
   def authenticated: akka.http.scaladsl.server.Directive1[ClientId] =
     authHelper.authenticated
 
@@ -70,7 +64,6 @@ class Routes(
       }
     }
 
-  // CORS minimal — autorise toute origine (dev). À restreindre en prod.
   private val corsAllowHeaders =
     `Access-Control-Allow-Headers`("Content-Type", "X-Session-Id", "Authorization")
   private val corsAllowMethods = `Access-Control-Allow-Methods`(
@@ -86,9 +79,7 @@ class Routes(
         .getOrElse(`Access-Control-Allow-Origin`.*)
 
       respondWithHeaders(allowOrigin, corsAllowHeaders, corsAllowMethods, `Access-Control-Allow-Credentials`(true)) {
-        options {
-          respondWithHeader(corsMaxAge) { complete(StatusCodes.OK) }
-        } ~ inner
+        options { respondWithHeader(corsMaxAge) { complete(StatusCodes.OK) } } ~ inner
       }
     }
 }
