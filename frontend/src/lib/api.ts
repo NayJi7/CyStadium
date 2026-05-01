@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 type FetchOpts = {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   body?: unknown;
   sessionId?: string;
   signal?: AbortSignal;
@@ -126,7 +126,7 @@ export const api = {
     request<void>("/api/auth/logout", { method: "POST", sessionId }),
 
   me: (sessionId: string) =>
-    request<{ client_id: string }>("/api/auth/me", { method: "GET", sessionId }),
+    request<MeResponse>("/api/auth/me", { method: "GET", sessionId }),
 
   // Matches
   getMatches: (sessionId?: string) =>
@@ -178,6 +178,45 @@ export const api = {
       `/api/matches/${matchId}`,
       { sessionId }
     ),
+
+  // Admin
+  adminStats: (sessionId: string, period = "30d") =>
+    request<AdminStats>(`/api/admin/stats?period=${period}`, { sessionId }),
+
+  adminMatches: (sessionId: string) =>
+    request<AdminMatch[]>("/api/admin/matches", { sessionId }),
+
+  adminCreateMatch: (sessionId: string, body: {
+    home_team: string; away_team: string; date: string;
+    stadium: string; city?: string; stage?: string;
+    total_capacity: number; zones: Record<string, number>; highlight: boolean;
+  }) =>
+    request<AdminMatch>("/api/admin/matches", { method: "POST", sessionId, body }),
+
+  adminUpdateMatch: (sessionId: string, id: string, body: Partial<{
+    home_team: string; away_team: string; date: string;
+    stadium: string; city: string; stage: string; highlight: boolean;
+  }>) =>
+    request<AdminMatch>(`/api/admin/matches/${id}`, { method: "PUT", sessionId, body }),
+
+  adminDeleteMatch: (sessionId: string, id: string) =>
+    request<void>(`/api/admin/matches/${id}`, { method: "DELETE", sessionId }),
+
+  adminReservations: (sessionId: string, status?: string, matchId?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (matchId) params.set("matchId", matchId);
+    const qs = params.toString();
+    return request<AdminReservation[]>(`/api/admin/reservations${qs ? "?" + qs : ""}`, { sessionId });
+  },
+
+  adminUsers: (sessionId: string) =>
+    request<AdminUser[]>("/api/admin/users", { sessionId }),
+
+  adminPatchUser: (sessionId: string, userId: string, isAdmin: boolean) =>
+    request<unknown>(`/api/admin/users/${userId}`, {
+      method: "PATCH", sessionId, body: { is_admin: isAdmin },
+    }),
 };
 
 export type PaymentSuccessResponse = {
@@ -203,4 +242,40 @@ export type LiveEvent = {
   match_id: string;
   seat_id: string;
   status: "free" | "reserved" | "confirmed" | "locked";
+};
+
+// ── Admin types ──────────────────────────────────────────────────────────────
+
+export type MeResponse = { client_id: string; is_admin: boolean };
+
+export type AdminStats = {
+  kpis: {
+    total_revenue: number;
+    total_reservations: number;
+    avg_occupancy: number;
+    total_free_seats: number;
+  };
+  reservations_over_time: { date: string; count: number }[];
+  occupancy_by_zone: { zone: string; free: number; occupied: number }[];
+  revenue_by_match: { match_name: string; revenue: number }[];
+};
+
+export type AdminMatch = {
+  id: string;
+  home_team: string; away_team: string;
+  date: string; stadium: string;
+  city?: string; stage?: string;
+  slug: string; highlight: boolean; status: string;
+  zones: Record<string, number>;
+  total_capacity: number; free_seats: number;
+};
+
+export type AdminUser = {
+  id: string; email: string; name: string; username: string; is_admin: boolean;
+};
+
+export type AdminReservation = {
+  reservation_id: string; match_id: string; match_name: string;
+  client_email: string; seats: number; total: number;
+  status: string; created_at: number;
 };
