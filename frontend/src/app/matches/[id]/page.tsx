@@ -23,40 +23,44 @@ const ZONE_ORDER = ["VIP", "Or", "Standard", "Populaire"];
 
 export default function MatchDetailPage({ params }: { params: { id: string } }) {
   const [matchMeta, setMatchMeta] = useState<MatchItem | null>(null);
+  const [matchId, setMatchId] = useState<string | null>(null); // UUID résolu
   const [zones, setZones] = useState<Zones | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [liveCount, setLiveCount] = useState(0);
 
+  // Résoudre slug ou UUID → MatchItem + UUID réel
   useEffect(() => {
     let cancelled = false;
     api.getMatches()
       .then((matches) => {
         if (cancelled) return;
-        const found = matches.find((m) => m.id === params.id);
-        if (found) setMatchMeta(found);
+        const found = matches.find((m) => m.id === params.id || m.slug === params.id);
+        if (found) { setMatchMeta(found); setMatchId(found.id); }
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [params.id]);
 
   useEffect(() => {
+    if (!matchId) return;
     let cancelled = false;
-    api.matchAvailability(params.id)
+    api.matchAvailability(matchId)
       .then((r) => { if (!cancelled) setZones(r.zones); })
       .catch((e) => {
         if (cancelled) return;
         setError(e instanceof ApiError ? `API ${e.status}` : "Backend indisponible");
       });
     return () => { cancelled = true; };
-  }, [params.id]);
+  }, [matchId]);
 
   useEffect(() => {
+    if (!matchId) return;
     let sock: WebSocket | null = null;
     try {
-      sock = openLiveSocket(params.id, (_: LiveEvent) => setLiveCount((n) => n + 1));
+      sock = openLiveSocket(matchId, (_: LiveEvent) => setLiveCount((n) => n + 1));
     } catch {}
     return () => sock?.close();
-  }, [params.id]);
+  }, [matchId]);
 
   const total = zones ? Object.values(zones).reduce((a, b) => a + b, 0) : null;
 
@@ -84,7 +88,7 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
                   {matchMeta?.stage ?? "Match"}
                 </span>
                 <span className="font-mono text-[10px] uppercase tracking-wider text-white/40">
-                  /{params.id}
+                  /{matchMeta?.slug ?? params.id}
                 </span>
               </div>
 
@@ -211,7 +215,7 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
         )}
 
         <div className="mt-10 flex flex-wrap gap-3">
-          <Link href={`/matches/${params.id}/reserve`}>
+          <Link href={`/matches/${matchMeta?.slug ?? params.id}/reserve`}>
             <Button size="lg" disabled={total === 0}>
               {total === 0 ? "Complet" : "Reserver des places"}
             </Button>

@@ -31,17 +31,17 @@ class MatchRoutes(
                 matchManagerMap.get(r.id) match {
                   case None =>
                     Future.successful(MatchDto(r.id, r.homeTeam, r.awayTeam,
-                      r.matchDate.toString, r.stadium, r.status, Map.empty))
+                      r.matchDate.toString, r.stadium, r.status, Map.empty, toSlug(r.homeTeam, r.awayTeam)))
                   case Some(mm) =>
                     (mm ? CheckAvailability(r.id)).mapTo[AvailabilityResult]
                       .map { avail =>
                         val zones = avail.zones.map { case (z, n) => zoneToName(z) -> n }
                         MatchDto(r.id, r.homeTeam, r.awayTeam,
-                          r.matchDate.toString, r.stadium, r.status, zones)
+                          r.matchDate.toString, r.stadium, r.status, zones, toSlug(r.homeTeam, r.awayTeam))
                       }
                       .recover { case _ =>
                         MatchDto(r.id, r.homeTeam, r.awayTeam,
-                          r.matchDate.toString, r.stadium, r.status, Map.empty)
+                          r.matchDate.toString, r.stadium, r.status, Map.empty, toSlug(r.homeTeam, r.awayTeam))
                       }
                 }
               })
@@ -98,6 +98,16 @@ class MatchRoutes(
         }
       )
     }
+
+  private def toSlug(home: String, away: String): String = {
+    val normalize = (s: String) => java.text.Normalizer
+      .normalize(s, java.text.Normalizer.Form.NFD)
+      .replaceAll("[^\\p{ASCII}]", "")
+      .toLowerCase
+      .replaceAll("[^a-z0-9]+", "-")
+      .stripPrefix("-").stripSuffix("-")
+    s"${normalize(home)}-${normalize(away)}"
+  }
 
   private def zoneToName(z: Zone): String = z match {
     case VIP       => "VIP"

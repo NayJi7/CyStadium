@@ -59,6 +59,7 @@ export type MatchItem = {
   away_team: string;
   date: string;
   stadium: string;
+  slug: string;        // ex: "france-bresil" — pour les URLs lisibles
   city?: string;
   stage?: string;
   highlight?: boolean;

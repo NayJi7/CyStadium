@@ -6,7 +6,8 @@ case class MatchDto(
   id: UUID, homeTeam: String, awayTeam: String,
   date: String,                   // ISO-8601, ex: "2026-06-14T20:00:00Z"
   stadium: String, status: String,
-  zones: Map[String, Int]         // nom zone -> nb sièges libres
+  zones: Map[String, Int],        // nom zone -> nb sièges libres
+  slug: String                    // ex: "france-bresil"
 )
 
 case class ZoneDto(zoneId: UUID, name: String, price: Double, available: Int)

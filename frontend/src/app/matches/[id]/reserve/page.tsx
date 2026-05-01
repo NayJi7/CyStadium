@@ -20,6 +20,7 @@ const MAX_SEATS = 8;
 
 export default function ReservePage({ params }: { params: { id: string } }) {
   const [matchMeta, setMatchMeta] = useState<MatchItem | null>(null);
+  const [matchId, setMatchId] = useState<string | null>(null); // UUID résolu depuis slug
   const [zones, setZones] = useState<Zones | null>(null);
   const [seats, setSeats] = useState<SeatInfo[] | null>(null);
   const [zoneFilter, setZoneFilter] = useState<Zone | null>(null);
@@ -32,28 +33,29 @@ export default function ReservePage({ params }: { params: { id: string } }) {
 
   useEffect(() => { setSession(getSessionId()); }, []);
 
-  // Fetch match metadata
+  // Résoudre slug ou UUID → MatchItem + UUID réel
   useEffect(() => {
     let cancelled = false;
     api.getMatches()
       .then((matches) => {
         if (cancelled) return;
-        const found = matches.find((m) => m.id === params.id);
-        if (found) setMatchMeta(found);
+        const found = matches.find((m) => m.id === params.id || m.slug === params.id);
+        if (found) { setMatchMeta(found); setMatchId(found.id); }
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [params.id]);
 
-  // Fetch zones + seats
+  // Fetch zones + seats (attend que matchId soit résolu)
   useEffect(() => {
+    if (!matchId) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
 
     Promise.all([
-      api.matchAvailability(params.id).catch((e) => { throw e; }),
-      api.getMatchSeats(params.id, getSessionId() ?? undefined).catch(() => null),
+      api.matchAvailability(matchId).catch((e) => { throw e; }),
+      api.getMatchSeats(matchId, getSessionId() ?? undefined).catch(() => null),
     ])
       .then(([availRes, seatRes]) => {
         if (cancelled) return;
@@ -69,7 +71,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
       });
 
     return () => { cancelled = true; };
-  }, [params.id]);
+  }, [matchId]);
 
   useEffect(() => { setSelectedSeats([]); }, [zones]);
 
@@ -106,7 +108,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
     try {
       const zone = selectedSeats[0].zone;
       const seatIds = selectedSeats.map((s) => s.id);
-      const res = await api.createReservation(params.id, zone, seatIds, session) as SeatsReservedResponse;
+      const res = await api.createReservation(matchId!, zone, seatIds, session) as SeatsReservedResponse;
       setPayment({ reservationId: res.reservation_id, amount: totalPrice });
     } catch (e) {
       alert(e instanceof ApiError ? `Erreur: ${e.status}` : "Erreur lors de la reservation");
@@ -168,7 +170,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
 
       <div className="relative flex-1 min-h-0">
         <div className="absolute top-6 left-6 z-20 pointer-events-auto">
-          <Link href={`/matches/${params.id}`} className="mb-5 inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-navy-900/50 px-3 py-1.5 text-sm text-white/70 backdrop-blur-md transition-colors hover:border-cyan-400/40 hover:text-cyan-300">
+          <Link href={`/matches/${matchMeta?.slug ?? params.id}`} className="mb-5 inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-navy-900/50 px-3 py-1.5 text-sm text-white/70 backdrop-blur-md transition-colors hover:border-cyan-400/40 hover:text-cyan-300">
             <ArrowLeft size={14} />Retour au match
           </Link>
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} className="text-center pt-4">
@@ -183,7 +185,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
                 <MapPin size={16} className="text-cyan-400" />
                 {matchMeta ? matchMeta.stadium : "Stade Olympique"} · Plan Interactif
               </p>
-              <LiveStatus matchId={params.id} onSeatStatus={handleSeatStatus} />
+              <LiveStatus matchId={matchId ?? params.id} onSeatStatus={handleSeatStatus} />
             </div>
           </motion.div>
         </div>

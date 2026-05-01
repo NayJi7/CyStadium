@@ -173,7 +173,7 @@ function MatchCard({ m }: { m: MatchItem }) {
               Complet
             </Button>
           ) : (
-            <Link href={`/matches/${m.id}`} className="block">
+            <Link href={`/matches/${m.slug ?? m.id}`} className="block">
               <Button size="md" variant="outline" className="group w-full">
                 Voir le match
                 <ArrowRight
