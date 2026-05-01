@@ -29,13 +29,13 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
       case Login("alice", "secret") =>
         val sid = UUID.randomUUID()
         sessions += sid -> knownClient
-        sender() ! LoginSuccess(sid, knownClient, "alice")
+        sender() ! LoginSuccess(sid, knownClient, "alice", isAdmin = false)
       case Login(_, _) =>
         sender() ! LoginFailed("invalid_credentials")
       case Register("alice", _, _, _) =>
         sender() ! RegisterFailed("username_or_email_taken")
       case Register(u, _, _, _) =>
-        sender() ! RegisterSuccess(UUID.randomUUID(), u)
+        sender() ! RegisterSuccess(UUID.randomUUID(), u, isAdmin = false)
       case Logout(sid) =>
         sessions -= sid
       case ValidateSession(sid) =>
@@ -48,7 +48,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
   private def newRoutes() = {
     val sm = system.actorOf(Props(new StubSessionManager))
-    new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 2.seconds).all
+    new Routes(sm, system.deadLetters, Map.empty, system.deadLetters, system.deadLetters, null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database], 2.seconds).all
   }
 
   "POST /api/auth/register" should {
@@ -133,7 +133,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   "Un login suivi d'un logout" should {
     "invalider la session" in {
       val sm        = system.actorOf(Props(new StubSessionManager))
-      val routesObj = new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 2.seconds)
+      val routesObj = new Routes(sm, system.deadLetters, Map.empty, system.deadLetters, system.deadLetters, null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database], 2.seconds)
       val protectedRoute = akka.http.scaladsl.server.Directives.get {
         routesObj.authenticated { _ =>
           akka.http.scaladsl.server.Directives.complete(StatusCodes.OK -> Json.obj("ok" -> Json.True))

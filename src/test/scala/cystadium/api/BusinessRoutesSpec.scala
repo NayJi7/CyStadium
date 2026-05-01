@@ -10,21 +10,6 @@ import cystadium.protocol._
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
 import io.circe.Json
 import io.circe.syntax._
-
-private object Payloads {
-  def reserveSeats(matchId: java.util.UUID, zone: String, seatIds: Set[java.util.UUID], sessionId: java.util.UUID): Json =
-    Json.obj(
-      "match_id"   -> Json.fromString(matchId.toString),
-      "zone"       -> Json.fromString(zone),
-      "seat_ids"   -> Json.arr(seatIds.toSeq.map(s => Json.fromString(s.toString)): _*),
-      "session_id" -> Json.fromString(sessionId.toString)
-    )
-  def initPayment(reservationId: java.util.UUID, amount: Double): Json =
-    Json.obj(
-      "reservation_id" -> Json.fromString(reservationId.toString),
-      "amount"         -> Json.fromDoubleOrNull(amount)
-    )
-}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -32,27 +17,33 @@ import java.time.Instant
 import java.util.UUID
 import scala.concurrent.duration._
 
-// Acteur qui répond de manière déterministe — remplace les vrais acteurs
-// des autres équipes le temps que MatchManager / ReservationHandler /
-// PaymentGateway soient prêts.
-private class FakeResponder(reply: PartialFunction[Any, Any]) extends Actor {
-  def receive: Receive = {
-    case msg if reply.isDefinedAt(msg) => sender() ! reply(msg)
-  }
+private object Payloads {
+  def reserveSeats(matchId: UUID, zone: String, seatIds: Set[UUID], sessionId: UUID): Json =
+    Json.obj(
+      "match_id"   -> Json.fromString(matchId.toString),
+      "zone"       -> Json.fromString(zone),
+      "seat_ids"   -> Json.arr(seatIds.toSeq.map(s => Json.fromString(s.toString)): _*),
+      "session_id" -> Json.fromString(sessionId.toString)
+    )
+  def initPayment(reservationId: UUID, amount: Double): Json =
+    Json.obj(
+      "reservation_id" -> Json.fromString(reservationId.toString),
+      "amount"         -> Json.fromDoubleOrNull(amount)
+    )
 }
 
-// Stub SessionManager pour les tests d'API : accepte n'importe quel login
-// et garde les sessions en mémoire. Évite la dépendance à Supabase.
+private class FakeResponder(reply: PartialFunction[Any, Any]) extends Actor {
+  def receive: Receive = { case msg if reply.isDefinedAt(msg) => sender() ! reply(msg) }
+}
+
 private class StubAuth extends Actor {
   private var sessions = Map.empty[UUID, UUID]
   def receive: Receive = {
     case Login(_, _) =>
-      val sid = UUID.randomUUID()
-      val cid = UUID.randomUUID()
+      val sid = UUID.randomUUID(); val cid = UUID.randomUUID()
       sessions += sid -> cid
-      sender() ! LoginSuccess(sid, cid, "test")
-    case Logout(sid) =>
-      sessions -= sid
+      sender() ! LoginSuccess(sid, cid, "test", isAdmin = false)
+    case Logout(sid)          => sessions -= sid
     case ValidateSession(sid) =>
       sessions.get(sid) match {
         case Some(cid) => sender() ! SessionValid(cid)
@@ -65,11 +56,27 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
 
   implicit val askTimeout: Timeout = Timeout(2.seconds)
 
+  // DB null : les routes testées ici n'atteignent pas la DB (acteurs fakés)
+  private val noDb = null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database]
+
+  private def mkRoutes(
+    sm: akka.actor.ActorRef,
+    matchManagerMap: Map[MatchId, akka.actor.ActorRef] = Map.empty,
+    reservationHandler: akka.actor.ActorRef = system.deadLetters,
+    paymentGateway: akka.actor.ActorRef = system.deadLetters,
+    timeout: FiniteDuration = 2.seconds
+  ) = new Routes(
+    sessionManager     = sm,
+    matchManager       = system.deadLetters,
+    matchManagerMap    = matchManagerMap,
+    reservationHandler = reservationHandler,
+    paymentGateway     = paymentGateway,
+    db                 = noDb,
+    askTimeoutDuration = timeout
+  ).all
+
   private def login(routes: akka.http.scaladsl.server.Route): String = {
-    val body = Json.obj(
-      "username" -> Json.fromString("alice"),
-      "password" -> Json.fromString("secret"),
-    )
+    val body = Json.obj("username" -> Json.fromString("alice"), "password" -> Json.fromString("secret"))
     Post("/api/auth/login", body) ~> routes ~> check {
       responseAs[Json].hcursor.get[String]("session_id").toOption.get
     }
@@ -83,7 +90,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
         case CheckAvailability(id) if id == matchId => result
       })))
       val sm     = system.actorOf(Props(new StubAuth))
-      val routes = new Routes(sm, fake, system.deadLetters, system.deadLetters, 2.seconds).all
+      val routes = mkRoutes(sm, matchManagerMap = Map(matchId -> fake))
 
       Get(s"/api/matches/$matchId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
@@ -96,10 +103,9 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
   }
 
   "POST /api/reservations" should {
-
     "retourner 401 sans session" in {
       val sm     = system.actorOf(Props(new StubAuth))
-      val routes = new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 2.seconds).all
+      val routes = mkRoutes(sm)
       val body = Payloads.reserveSeats(UUID.randomUUID(), "VIP", Set(UUID.randomUUID()), UUID.randomUUID())
       Post("/api/reservations", body) ~> routes ~> check {
         status shouldBe StatusCodes.Unauthorized
@@ -110,12 +116,10 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val reservationId = UUID.randomUUID()
       val seats         = Set(UUID.randomUUID(), UUID.randomUUID())
       val reply         = SeatsReserved(reservationId, seats, total = 99.0, expiresAt = Instant.now().plusSeconds(600))
-      val fake = system.actorOf(Props(new FakeResponder({
-        case _: ReserveSeats => reply
-      })))
-      val sm     = system.actorOf(Props(new StubAuth))
-      val routes = new Routes(sm, system.deadLetters, fake, system.deadLetters, 2.seconds).all
-      val sid    = login(routes)
+      val fake = system.actorOf(Props(new FakeResponder({ case _: ReserveSeats => reply })))
+      val sm   = system.actorOf(Props(new StubAuth))
+      val routes = mkRoutes(sm, reservationHandler = fake)
+      val sid  = login(routes)
 
       val body = Payloads.reserveSeats(UUID.randomUUID(), "VIP", seats, UUID.fromString(sid))
       Post("/api/reservations", body).addHeader(RawHeader("X-Session-Id", sid)) ~> routes ~> check {
@@ -126,12 +130,10 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
 
     "retourner 409 SeatsUnavailable" in {
       val conflict = Set(UUID.randomUUID())
-      val fake = system.actorOf(Props(new FakeResponder({
-        case _: ReserveSeats => SeatsUnavailable(conflict)
-      })))
-      val sm     = system.actorOf(Props(new StubAuth))
-      val routes = new Routes(sm, system.deadLetters, fake, system.deadLetters, 2.seconds).all
-      val sid    = login(routes)
+      val fake = system.actorOf(Props(new FakeResponder({ case _: ReserveSeats => SeatsUnavailable(conflict) })))
+      val sm   = system.actorOf(Props(new StubAuth))
+      val routes = mkRoutes(sm, reservationHandler = fake)
+      val sid  = login(routes)
 
       val body = Payloads.reserveSeats(UUID.randomUUID(), "VIP", Set(UUID.randomUUID()), UUID.fromString(sid))
       Post("/api/reservations", body).addHeader(RawHeader("X-Session-Id", sid)) ~> routes ~> check {
@@ -143,32 +145,26 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
   "POST /api/reservations/:id/pay" should {
     "mapper PaymentFailed → 402" in {
       val reservationId = UUID.randomUUID()
-      val fake = system.actorOf(Props(new FakeResponder({
-        case _: InitPayment => PaymentFailed(reservationId, "card_declined")
-      })))
-      val sm     = system.actorOf(Props(new StubAuth))
-      val routes = new Routes(sm, system.deadLetters, system.deadLetters, fake, 2.seconds).all
-      val sid    = login(routes)
+      val fake = system.actorOf(Props(new FakeResponder({ case _: InitPayment => PaymentFailed(reservationId, "card_declined") })))
+      val sm   = system.actorOf(Props(new StubAuth))
+      val routes = mkRoutes(sm, paymentGateway = fake)
+      val sid  = login(routes)
 
-      val body = Payloads.initPayment(reservationId, 50.0)
-      Post(s"/api/reservations/$reservationId/pay", body).addHeader(RawHeader("X-Session-Id", sid)) ~>
-        routes ~> check {
+      Post(s"/api/reservations/$reservationId/pay", Payloads.initPayment(reservationId, 50.0))
+        .addHeader(RawHeader("X-Session-Id", sid)) ~> routes ~> check {
           status shouldBe StatusCodes.PaymentRequired
         }
     }
 
     "mapper PaymentTimeout → 504" in {
       val reservationId = UUID.randomUUID()
-      val fake = system.actorOf(Props(new FakeResponder({
-        case _: InitPayment => PaymentTimeout(reservationId)
-      })))
-      val sm     = system.actorOf(Props(new StubAuth))
-      val routes = new Routes(sm, system.deadLetters, system.deadLetters, fake, 2.seconds).all
-      val sid    = login(routes)
+      val fake = system.actorOf(Props(new FakeResponder({ case _: InitPayment => PaymentTimeout(reservationId) })))
+      val sm   = system.actorOf(Props(new StubAuth))
+      val routes = mkRoutes(sm, paymentGateway = fake)
+      val sid  = login(routes)
 
-      val body = Payloads.initPayment(reservationId, 50.0)
-      Post(s"/api/reservations/$reservationId/pay", body).addHeader(RawHeader("X-Session-Id", sid)) ~>
-        routes ~> check {
+      Post(s"/api/reservations/$reservationId/pay", Payloads.initPayment(reservationId, 50.0))
+        .addHeader(RawHeader("X-Session-Id", sid)) ~> routes ~> check {
           status shouldBe StatusCodes.GatewayTimeout
         }
     }
@@ -176,10 +172,10 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
 
   "Timeout sur un acteur indisponible" should {
     "retourner 503 service_unavailable" in {
-      val sm     = system.actorOf(Props(new StubAuth))
-      // matchManager = deadLetters → jamais de réponse → AskTimeoutException
-      val routes = new Routes(sm, system.deadLetters, system.deadLetters, system.deadLetters, 500.millis).all
-      Get(s"/api/matches/${UUID.randomUUID()}") ~> routes ~> check {
+      val matchId = UUID.randomUUID()
+      val sm      = system.actorOf(Props(new StubAuth))
+      val routes  = mkRoutes(sm, matchManagerMap = Map(matchId -> system.deadLetters), timeout = 500.millis)
+      Get(s"/api/matches/$matchId") ~> routes ~> check {
         status shouldBe StatusCodes.ServiceUnavailable
       }
     }
