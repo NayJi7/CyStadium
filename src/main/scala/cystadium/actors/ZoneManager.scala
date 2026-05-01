@@ -12,6 +12,9 @@ import scala.concurrent.Future
 object ZoneManager {
   def props(matchId: MatchId, zone: Zone, seatsData: List[(SeatId, Double, SeatStatus)]): Props =
     Props(new ZoneManager(matchId, zone, seatsData))
+
+  case class GetSeatRefs(seatIds: Set[SeatId])
+  case class SeatRefsResult(refs: Map[SeatId, ActorRef])
 }
 
 class ZoneManager(matchId: MatchId, zone: Zone, seatsData: List[(SeatId, Double, SeatStatus)]) 
@@ -51,5 +54,9 @@ class ZoneManager(matchId: MatchId, zone: Zone, seatsData: List[(SeatId, Double,
         val freeCount = responses.count(_.status == Free)
         replyTo ! freeCount
       }
+
+    case ZoneManager.GetSeatRefs(seatIds) =>
+      val found = seatRefs.filter { case (id, _) => seatIds.contains(id) }
+      sender() ! ZoneManager.SeatRefsResult(found)
   }
 }

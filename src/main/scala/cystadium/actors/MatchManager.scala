@@ -1,71 +1,97 @@
 package cystadium.actors
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import akka.pattern.pipe
-import akka.pattern.ask
+import akka.pattern.{ask, pipe}
 import akka.util.Timeout
+import cystadium.db.Tables
 import cystadium.protocol._
+import slick.jdbc.PostgresProfile.api._
+
 import scala.concurrent.Future
 import scala.concurrent.duration._
-import java.util.UUID
 
-//crée un match manager et (re)démarre l'acteur
 object MatchManager {
-  def props(matchId: MatchId): Props = Props(new MatchManager(matchId))
-}
+  def props(matchId: MatchId, db: slick.jdbc.JdbcBackend#Database): Props =
+    Props(new MatchManager(matchId, db))
 
-class MatchManager(matchId: MatchId) extends Actor with ActorLogging {
-
-  import context.dispatcher
-  var zoneManagers: Map[Zone, ActorRef] = Map.empty
+  case class GetSeatRefs(matchId: MatchId, zone: Zone, seatIds: Set[SeatId])
+  case class SeatRefsResult(refs: Map[SeatId, ActorRef])
 
   private case class InitialDataLoaded(data: List[(SeatId, Zone, Double, SeatStatus)])
+}
 
-  // on demande à la bdd les données des sieges du match
+class MatchManager(matchId: MatchId, db: slick.jdbc.JdbcBackend#Database)
+    extends Actor with ActorLogging {
+
+  import MatchManager._
+  import context.dispatcher
+  implicit val t: Timeout = Timeout(5.seconds)
+
+  var zoneManagers: Map[Zone, ActorRef] = Map.empty
+
   override def preStart(): Unit = {
-    log.info(s"MatchManager $matchId : Initialisation de la hiérarchie...")
-    
-    val dbRequest: Future[List[(SeatId, Zone, Double, SeatStatus)]] = Future.successful(
-      List(
-        // On crée 3 sièges fictifs pour tester (1 Libre, 1 Réservé, 1 Autre) --> a remplacer avec la bdd
-        (UUID.randomUUID(), VIP, 500.0, Free),
-        (UUID.randomUUID(), VIP, 500.0, Reserved(UUID.randomUUID(), UUID.randomUUID(), java.time.Instant.now())),
-        (UUID.randomUUID(), Or, 250.0, Free)
-      )
-    )
+    log.info(s"MatchManager $matchId : chargement depuis la DB...")
 
-    // On envoie le résultat à l'acteur lui-même via le pattern pipeTo quand la requete est terminée comme ca le manager reste libre pour d'autres taches
-    dbRequest.map(InitialDataLoaded).pipeTo(self)
+    val loadFuture: Future[List[(SeatId, Zone, Double, SeatStatus)]] = for {
+      zones <- db.run(Tables.zones.filter(_.matchId === matchId).result)
+      seats <- db.run(Tables.seats
+        .filter(_.zoneId.inSet(zones.map(_.id).toSet))
+        .result)
+    } yield {
+      val zoneById = zones.map(z => z.id -> (nameToZone(z.name), z.price.toDouble)).toMap
+      seats.toList.flatMap { s =>
+        zoneById.get(s.zoneId).map { case (zone, price) =>
+          val status: SeatStatus = s.status match {
+            case "confirmed" => Confirmed(java.util.UUID.randomUUID(), java.util.UUID.randomUUID())
+            case "locked"    => Locked
+            case _           => Free
+          }
+          (s.id, zone, price, status)
+        }
+      }
+    }
+
+    loadFuture.map(InitialDataLoaded).pipeTo(self)
   }
 
   def receive: Receive = {
-    // création des ZoneManagers
     case InitialDataLoaded(seats) =>
       val seatsByZone = seats.groupBy(_._2)
-
-      // Création des ZoneManagers un pr chaque cat (VIP, Or, Standard, Populaire)
       zoneManagers = Seq(VIP, Or, Standard, Populaire).map { zType =>
         val zoneData = seatsByZone.getOrElse(zType, Nil).map(s => (s._1, s._3, s._4))
-        // On instancie le ZoneManager qui va lui-même créer les SeatActor
-        val ref = context.actorOf(ZoneManager.props(matchId, zType, zoneData), s"zone-$zType")
+        val ref = context.actorOf(
+          ZoneManager.props(matchId, zType, zoneData),
+          s"zone-$zType"
+        )
         zType -> ref
       }.toMap
+      log.info(s"MatchManager $matchId : ${zoneManagers.size} zones, ${seats.size} sièges")
 
-      log.info(s"Hiérarchie restaurée : ${zoneManagers.size} zones prêtes.")
-
-    //  vérification de disponibilité aux zones
     case CheckAvailability(mId) if mId == matchId =>
       val replyTo = sender()
-      implicit val t: Timeout = Timeout(5.seconds)
-
-      // On interroge chaque zone en parallèle
       val zoneFutures = zoneManagers.map { case (z, ref) =>
         (ref ? CheckAvailability(mId)).mapTo[Int].map(count => z -> count)
       }
-
-      // On attend les résultats et on répond
       Future.sequence(zoneFutures).map { results =>
         replyTo ! AvailabilityResult(matchId, results.toMap)
       }
+
+    case GetSeatRefs(_, zone, seatIds) =>
+      zoneManagers.get(zone) match {
+        case Some(zm) =>
+          val replyTo = sender()
+          (zm ? ZoneManager.GetSeatRefs(seatIds)).mapTo[ZoneManager.SeatRefsResult]
+            .foreach(r => replyTo ! SeatRefsResult(r.refs))
+        case None =>
+          sender() ! SeatRefsResult(Map.empty)
+      }
+  }
+
+  private def nameToZone(name: String): Zone = name match {
+    case "VIP"       => VIP
+    case "Or"        => Or
+    case "Standard"  => Standard
+    case "Populaire" => Populaire
+    case other       => throw new IllegalArgumentException(s"Zone inconnue: $other")
   }
 }
