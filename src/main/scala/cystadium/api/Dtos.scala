@@ -4,8 +4,9 @@ import java.util.UUID
 
 case class MatchDto(
   id: UUID, homeTeam: String, awayTeam: String,
-  date: Long,
-  stadium: String, status: String
+  date: String,                   // ISO-8601, ex: "2026-06-14T20:00:00Z"
+  stadium: String, status: String,
+  zones: Map[String, Int]         // nom zone -> nb sièges libres
 )
 
 case class ZoneDto(zoneId: UUID, name: String, price: Double, available: Int)

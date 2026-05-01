@@ -24,8 +24,31 @@ const ISO: Record<string, { iso: string; name: string }> = {
   MEX: { iso: "mx", name: "Mexique" },
 };
 
+// Reverse lookup : noms complets (français/anglais) → code 3 lettres
+const NAME_TO_CODE: Record<string, string> = {
+  "France": "FRA", "Brésil": "BRA", "Bresil": "BRA", "Brazil": "BRA",
+  "Allemagne": "GER", "Germany": "GER",
+  "Espagne": "ESP", "Spain": "ESP",
+  "Argentine": "ARG", "Argentina": "ARG",
+  "Portugal": "POR",
+  "Angleterre": "ENG", "England": "ENG",
+  "Pays-Bas": "NED", "Netherlands": "NED",
+  "Italie": "ITA", "Italy": "ITA",
+  "Uruguay": "URU",
+  "Croatie": "CRO", "Croatia": "CRO",
+  "Belgique": "BEL", "Belgium": "BEL",
+  "Japon": "JPN", "Japan": "JPN",
+  "Corée du Sud": "KOR", "South Korea": "KOR",
+  "Maroc": "MAR", "Morocco": "MAR",
+  "Sénégal": "SEN", "Senegal": "SEN",
+  "États-Unis": "USA", "United States": "USA",
+  "Canada": "CAN",
+  "Mexique": "MEX", "Mexico": "MEX",
+};
+
 export function flagInfo(code: string): { iso: string; name: string; url: string } {
-  const hit = ISO[code] ?? { iso: "un", name: code };
+  const resolved = NAME_TO_CODE[code] ?? code;
+  const hit = ISO[resolved] ?? { iso: "un", name: code };
   return {
     ...hit,
     url: `https://flagcdn.com/w160/${hit.iso}.png`,

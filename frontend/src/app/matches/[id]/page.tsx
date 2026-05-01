@@ -121,7 +121,7 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
                 <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-2 text-sm text-white/70">
                   <div className="flex items-center gap-2">
                     <Calendar size={14} className="text-cyan-400" aria-hidden />
-                    {matchMeta.date}
+                    {(() => { try { return new Date(matchMeta.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }); } catch { return matchMeta.date; } })()}
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin size={14} className="text-cyan-400" aria-hidden />

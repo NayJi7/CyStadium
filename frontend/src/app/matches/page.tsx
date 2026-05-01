@@ -14,6 +14,18 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 const ZONE_ORDER = ["VIP", "Or", "Standard", "Populaire"] as const;
 
+function fmtDate(raw: string | number): string {
+  try {
+    const d = new Date(raw);
+    return d.toLocaleDateString("fr-FR", {
+      day: "numeric", month: "long", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  } catch {
+    return String(raw);
+  }
+}
+
 function MatchCard({ m }: { m: MatchItem }) {
   const home = flagInfo(m.home_team);
   const away = flagInfo(m.away_team);
@@ -86,7 +98,7 @@ function MatchCard({ m }: { m: MatchItem }) {
         <dl className="mt-4 space-y-2 text-sm text-white/70">
           <div className="flex items-center gap-2">
             <Calendar size={14} className="text-cyan-400" aria-hidden />
-            <span>{m.date}</span>
+            <span>{fmtDate(m.date)}</span>
           </div>
           <div className="flex items-center gap-2">
             <MapPin size={14} className="text-cyan-400" aria-hidden />

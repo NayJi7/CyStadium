@@ -12,7 +12,7 @@ import cystadium.protocol._
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
 import slick.jdbc.PostgresProfile.api._
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 
 class MatchRoutes(
   matchManager:    ActorRef,
@@ -25,17 +25,28 @@ class MatchRoutes(
       concat(
         pathEndOrSingleSlash {
           get {
-            onSuccess(db.run(Tables.matches.result)) { rows =>
-              val dtos = rows.map(r => MatchDto(
-                id       = r.id,
-                homeTeam = r.homeTeam,
-                awayTeam = r.awayTeam,
-                date     = r.matchDate.toEpochMilli,
-                stadium  = r.stadium,
-                status   = r.status
-              ))
-              complete(StatusCodes.OK -> dtos)
+            // Charge les matchs puis interroge chaque MatchManager pour la dispo
+            val result = db.run(Tables.matches.result).flatMap { rows =>
+              Future.sequence(rows.map { r =>
+                matchManagerMap.get(r.id) match {
+                  case None =>
+                    Future.successful(MatchDto(r.id, r.homeTeam, r.awayTeam,
+                      r.matchDate.toString, r.stadium, r.status, Map.empty))
+                  case Some(mm) =>
+                    (mm ? CheckAvailability(r.id)).mapTo[AvailabilityResult]
+                      .map { avail =>
+                        val zones = avail.zones.map { case (z, n) => zoneToName(z) -> n }
+                        MatchDto(r.id, r.homeTeam, r.awayTeam,
+                          r.matchDate.toString, r.stadium, r.status, zones)
+                      }
+                      .recover { case _ =>
+                        MatchDto(r.id, r.homeTeam, r.awayTeam,
+                          r.matchDate.toString, r.stadium, r.status, Map.empty)
+                      }
+                }
+              })
             }
+            onSuccess(result) { dtos => complete(StatusCodes.OK -> dtos) }
           }
         },
         path(JavaUUID) { matchId =>
