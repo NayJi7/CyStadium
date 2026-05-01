@@ -31,17 +31,17 @@ class MatchRoutes(
                 matchManagerMap.get(r.id) match {
                   case None =>
                     Future.successful(MatchDto(r.id, r.homeTeam, r.awayTeam,
-                      r.matchDate.toString, r.stadium, r.status, Map.empty, toSlug(r.homeTeam, r.awayTeam)))
+                      r.matchDate.toString, r.stadium, r.city, r.stage, r.status, r.highlight, Map.empty, toSlug(r.homeTeam, r.awayTeam)))
                   case Some(mm) =>
                     (mm ? CheckAvailability(r.id)).mapTo[AvailabilityResult]
                       .map { avail =>
                         val zones = avail.zones.map { case (z, n) => zoneToName(z) -> n }
                         MatchDto(r.id, r.homeTeam, r.awayTeam,
-                          r.matchDate.toString, r.stadium, r.status, zones, toSlug(r.homeTeam, r.awayTeam))
+                          r.matchDate.toString, r.stadium, r.city, r.stage, r.status, r.highlight, zones, toSlug(r.homeTeam, r.awayTeam))
                       }
                       .recover { case _ =>
                         MatchDto(r.id, r.homeTeam, r.awayTeam,
-                          r.matchDate.toString, r.stadium, r.status, Map.empty, toSlug(r.homeTeam, r.awayTeam))
+                          r.matchDate.toString, r.stadium, r.city, r.stage, r.status, r.highlight, Map.empty, toSlug(r.homeTeam, r.awayTeam))
                       }
                 }
               })
