@@ -30,6 +30,7 @@ class ReservationRoutes(
             concat(
               post {
                 entity(as[ReserveSeats]) { req =>
+                  println(s"[DEBUG] ReserveSeats: match=${req.matchId} zone=${req.zone} seats=${req.seatIds.take(3)}...(${req.seatIds.size})")
                   onSuccess((reservationHandler ? req).mapTo[Any]) {
                     case ok: SeatsReserved    => complete(StatusCodes.Created -> ok)
                     case ko: SeatsUnavailable => complete(StatusCodes.Conflict -> ko)
@@ -48,7 +49,7 @@ class ReservationRoutes(
             post {
               entity(as[InitPayment]) { body =>
                 val req = if (body.reservationId == reservationId) body else body.copy(reservationId = reservationId)
-                onSuccess((paymentGateway ? req).mapTo[Any]) {
+                onSuccess((reservationHandler ? req).mapTo[Any]) {
                   case ok: PaymentSuccess => complete(StatusCodes.OK -> ok)
                   case ko: PaymentFailed  => complete(StatusCodes.PaymentRequired -> ko)
                   case to: PaymentTimeout => complete(StatusCodes.GatewayTimeout -> to)
