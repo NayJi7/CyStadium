@@ -9,6 +9,7 @@ import akka.util.Timeout
 import cystadium.db.{Tables, MatchRow, ZoneRow, SeatRow}
 import cystadium.json.Codecs._
 import cystadium.protocol._
+import cystadium.actors.Supervisor
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
 import slick.jdbc.PostgresProfile.api._
 
@@ -19,6 +20,7 @@ import scala.util.Try
 
 class AdminRoutes(
   sessionManager:  ActorRef,
+  supervisor:      ActorRef,
   matchManagerMap: Map[MatchId, ActorRef],
   db:              slick.jdbc.PostgresProfile.backend.Database
 )(implicit askTimeout: Timeout, ec: ExecutionContext) {
@@ -80,13 +82,26 @@ class AdminRoutes(
             )
           },
 
+          path("actors") {
+            authenticatedAdmin { _ =>
+              get {
+                onSuccess((supervisor ? Supervisor.GetActorStatus).mapTo[Supervisor.ActorStatus]) { status =>
+                  complete(StatusCodes.OK -> status)
+                }
+              }
+            }
+          },
+
           pathPrefix("matches") {
             concat(
               pathEndOrSingleSlash {
                 concat(
                   get { onSuccess(fetchAdminMatches()) { ms => complete(StatusCodes.OK -> ms) } },
                   post { entity(as[CreateMatchRequest]) { req =>
-                    onSuccess(createMatch(req)) { dto => complete(StatusCodes.Created -> dto) }
+                    onSuccess(createMatch(req)) { dto =>
+                      supervisor ! Supervisor.ReloadMatch(dto.id)
+                      complete(StatusCodes.Created -> dto)
+                    }
                   }}
                 )
               },
@@ -94,8 +109,10 @@ class AdminRoutes(
                 concat(
                   put { entity(as[UpdateMatchRequest]) { req =>
                     onSuccess(updateMatch(matchId, req)) {
-                      case Some(dto) => complete(StatusCodes.OK -> dto)
-                      case None      => complete(StatusCodes.NotFound -> notFound)
+                      case Some(dto) =>
+                        supervisor ! Supervisor.ReloadMatch(matchId)
+                        complete(StatusCodes.OK -> dto)
+                      case None => complete(StatusCodes.NotFound -> notFound)
                     }
                   }},
                   delete {
@@ -132,7 +149,7 @@ class AdminRoutes(
     val revenueQ = {
       val base = Tables.reservations.filter(r => r.status === "paid" || r.status === "confirmed")
       cutoff.fold(base)(c => base.filter(_.createdAt >= c))
-        .map(_.total).sum.getOrElse(BigDecimal(0)).result
+        .map(_.total).sum.result
     }
 
     val countQ = {
@@ -194,7 +211,7 @@ class AdminRoutes(
         else topMatches.take(5) :+ MatchRevenueDto("Autres", topMatches.drop(5).map(_.revenue).sum)
 
       AdminStatsDto(
-        kpis                 = KpisDto(revenue.toDouble, count, avgOcc, freeSeats),
+        kpis                 = KpisDto(revenue.getOrElse(BigDecimal(0)).toDouble, count, avgOcc, freeSeats),
         reservationsOverTime = overTime.map { case (d, c) => DayCountDto(d, c) }.toList,
         occupancyByZone      = occupancyByZone,
         revenueByMatch       = revenueByMatch
@@ -276,28 +293,50 @@ class AdminRoutes(
       case Some(existing) =>
         val newDate = req.date.fold(existing.matchDate)(d =>
           java.time.LocalDateTime.parse(d).toInstant(java.time.ZoneOffset.UTC))
-        val q = Tables.matches.filter(_.id === matchId)
+        val newHome = req.homeTeam.getOrElse(existing.homeTeam)
+        val newAway = req.awayTeam.getOrElse(existing.awayTeam)
+        val newStadium = req.stadium.getOrElse(existing.stadium)
+        val newCity = req.city.orElse(existing.city)
+        val newStage = req.stage.orElse(existing.stage)
+        val newHighlight = req.highlight.getOrElse(existing.highlight)
+
+        val matchUpdate = Tables.matches.filter(_.id === matchId)
           .map(m => (m.homeTeam, m.awayTeam, m.matchDate, m.stadium, m.city, m.stage, m.highlight))
-          .update((
-            req.homeTeam.getOrElse(existing.homeTeam),
-            req.awayTeam.getOrElse(existing.awayTeam),
-            newDate,
-            req.stadium.getOrElse(existing.stadium),
-            req.city.orElse(existing.city),
-            req.stage.orElse(existing.stage),
-            req.highlight.getOrElse(existing.highlight)
-          ))
-        val newHomeTeam = req.homeTeam.getOrElse(existing.homeTeam)
-        val newAwayTeam = req.awayTeam.getOrElse(existing.awayTeam)
-        db.run(q).map { _ =>
-          Some(AdminMatchDto(
-            existing.id, newHomeTeam, newAwayTeam,
-            newDate.toString, req.stadium.getOrElse(existing.stadium),
-            req.city.orElse(existing.city), req.stage.orElse(existing.stage),
-            toSlug(newHomeTeam, newAwayTeam),
-            req.highlight.getOrElse(existing.highlight), existing.status,
-            Map.empty, 0, 0
-          ))
+          .update((newHome, newAway, newDate, newStadium, newCity, newStage, newHighlight))
+
+        val zonePrices = Map("VIP" -> 500.0, "Or" -> 250.0, "Standard" -> 100.0, "Populaire" -> 50.0)
+
+        req.zones match {
+          case Some(newZones) =>
+            val newTotal = req.totalCapacity.getOrElse(newZones.values.sum)
+            val deleteOld = DBIO.seq(
+              Tables.seats.filter(s => s.zoneId in Tables.zones.filter(_.matchId === matchId).map(_.id)).delete,
+              Tables.zones.filter(_.matchId === matchId).delete
+            )
+            val insertNew = DBIO.seq(newZones.map { case (zoneName, capacity) =>
+              val zoneId  = UUID.randomUUID()
+              val price   = BigDecimal(zonePrices.getOrElse(zoneName, 100.0))
+              DBIO.seq(
+                Tables.zones += ZoneRow(zoneId, matchId, zoneName, price, capacity),
+                Tables.seats ++= generateSeats(zoneId, zoneName, capacity)
+              )
+            }.toSeq: _*)
+            val action = deleteOld.andThen(insertNew).andThen(matchUpdate).transactionally
+            db.run(action).map { _ =>
+              Some(AdminMatchDto(matchId, newHome, newAway, newDate.toString,
+                newStadium, newCity, newStage, toSlug(newHome, newAway),
+                newHighlight, existing.status, newZones, newTotal, newTotal))
+            }
+
+          case None =>
+            val fetchZones = Tables.zones.filter(_.matchId === matchId).result
+            db.run(matchUpdate.andThen(fetchZones)).map { zoneRows =>
+              val zoneMap = zoneRows.map(z => z.name -> z.capacity).toMap
+              val total = zoneMap.values.sum
+              Some(AdminMatchDto(matchId, newHome, newAway, newDate.toString,
+                newStadium, newCity, newStage, toSlug(newHome, newAway),
+                newHighlight, existing.status, zoneMap, total, total))
+            }
         }
     }
   }
@@ -309,7 +348,8 @@ class AdminRoutes(
     statusFilter: Option[String],
     matchIdFilter: Option[UUID]
   ): Future[List[AdminReservationDto]] = {
-    val statusCond  = statusFilter.fold("1=1")(s => s"r.status = '$s'")
+    val validStatuses = Set("pending", "paid", "confirmed", "cancelled", "expired")
+    val safeStatus = statusFilter.filter(validStatuses.contains).fold("1=1")(s => s"r.status = '$s'")
     val matchCond   = matchIdFilter.fold("1=1")(id => s"r.match_id = '$id'")
     val q = sql"""
       SELECT r.id::text, r.match_id::text,
@@ -322,7 +362,7 @@ class AdminRoutes(
       FROM reservations r
       JOIN matches m ON m.id = r.match_id
       JOIN clients c ON c.id = r.client_id
-      WHERE (#$statusCond)
+      WHERE (#$safeStatus)
         AND (#$matchCond)
       ORDER BY r.created_at DESC
     """.as[(String, String, String, String, Int, Double, String, Long)]

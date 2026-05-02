@@ -37,6 +37,7 @@ object Main {
 
     val routes = new Routes(
       sessionManager     = refs.sessionManager,
+      supervisor         = supervisor,
       matchManager       = refs.matchManagers.headOption.map(_._2).getOrElse(system.deadLetters),
       matchManagerMap    = refs.matchManagers,
       reservationHandler = refs.reservationHandler,

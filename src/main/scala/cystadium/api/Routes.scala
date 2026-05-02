@@ -17,6 +17,7 @@ import scala.util.Try
 
 class Routes(
   sessionManager:     ActorRef,
+  supervisor:         ActorRef,
   matchManager:       ActorRef,
   matchManagerMap:    Map[MatchId, ActorRef],
   reservationHandler: ActorRef,
@@ -32,8 +33,9 @@ class Routes(
   private val authRoutes        = new AuthRoutes(sessionManager, authHelper.authenticated, db).routes
   private val matchRoutes       = new MatchRoutes(matchManager, matchManagerMap, db).routes
   private val reservationRoutes = new ReservationRoutes(reservationHandler, paymentGateway, db, authHelper.authenticated).routes
-  private val adminRoutes       = new AdminRoutes(sessionManager, matchManagerMap, db).routes
+  private val adminRoutes       = new AdminRoutes(sessionManager, supervisor, matchManagerMap, db).routes
   private val wsRoutes          = new WebSocketHandler(system).routes
+  private val adminWsRoutes     = new AdminWebSocketHandler(supervisor, sessionManager).routes
 
   val exceptionHandler: ExceptionHandler = ExceptionHandler {
     case _: AskTimeoutException =>
@@ -59,7 +61,7 @@ class Routes(
             pathPrefix("api") {
               concat(authRoutes, matchRoutes, reservationRoutes, adminRoutes)
             },
-            pathPrefix("ws") { wsRoutes }
+            pathPrefix("ws") { concat(wsRoutes, adminWsRoutes) }
           )
         }
       }
@@ -68,7 +70,7 @@ class Routes(
   private val corsAllowHeaders =
     `Access-Control-Allow-Headers`("Content-Type", "X-Session-Id", "Authorization")
   private val corsAllowMethods = `Access-Control-Allow-Methods`(
-    HttpMethods.GET, HttpMethods.POST, HttpMethods.PUT, HttpMethods.DELETE, HttpMethods.OPTIONS
+    HttpMethods.GET, HttpMethods.POST, HttpMethods.PUT, HttpMethods.PATCH, HttpMethods.DELETE, HttpMethods.OPTIONS
   )
   private val corsMaxAge = `Access-Control-Max-Age`(3600)
 

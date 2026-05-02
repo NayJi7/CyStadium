@@ -67,6 +67,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
     timeout: FiniteDuration = 2.seconds
   ) = new Routes(
     sessionManager     = sm,
+    supervisor         = system.deadLetters,
     matchManager       = system.deadLetters,
     matchManagerMap    = matchManagerMap,
     reservationHandler = reservationHandler,

@@ -48,7 +48,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
   private def newRoutes() = {
     val sm = system.actorOf(Props(new StubSessionManager))
-    new Routes(sm, system.deadLetters, Map.empty, system.deadLetters, system.deadLetters, null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database], 2.seconds).all
+    new Routes(sm, system.deadLetters, system.deadLetters, Map.empty, system.deadLetters, system.deadLetters, null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database], 2.seconds).all
   }
 
   "POST /api/auth/register" should {
@@ -133,7 +133,7 @@ class AuthRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
   "Un login suivi d'un logout" should {
     "invalider la session" in {
       val sm        = system.actorOf(Props(new StubSessionManager))
-      val routesObj = new Routes(sm, system.deadLetters, Map.empty, system.deadLetters, system.deadLetters, null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database], 2.seconds)
+      val routesObj = new Routes(sm, system.deadLetters, system.deadLetters, Map.empty, system.deadLetters, system.deadLetters, null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database], 2.seconds)
       val protectedRoute = akka.http.scaladsl.server.Directives.get {
         routesObj.authenticated { _ =>
           akka.http.scaladsl.server.Directives.complete(StatusCodes.OK -> Json.obj("ok" -> Json.True))
