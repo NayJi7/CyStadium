@@ -12,16 +12,18 @@ object ReservationHandler {
   def props(
       sessionManager: ActorRef,
       seatAllocator: ActorRef,
+      paymentGateway: ActorRef,
       seatRefResolver: SeatRefResolver,
       repository: ReservationRepository = ReservationRepository.NoOp,
       reservationTtl: FiniteDuration = 10.minutes,
       responseTimeout: FiniteDuration = 5.seconds,
       pricing: Zone => Double = DefaultPricing.priceOf
   ): Props =
-    Props(new ReservationHandler(sessionManager, seatAllocator, seatRefResolver, repository, reservationTtl, responseTimeout, pricing))
+    Props(new ReservationHandler(sessionManager, seatAllocator, paymentGateway, seatRefResolver, repository, reservationTtl, responseTimeout, pricing))
 
   trait SeatRefResolver {
     def resolve(matchId: MatchId, zone: Zone, seatIds: Set[SeatId]): Map[SeatId, ActorRef]
+    def resolveAll(matchId: MatchId, seatIds: Set[SeatId]): (Map[SeatId, ActorRef], Map[SeatId, Zone])
   }
 
   final case class ReservationSnapshot(
@@ -140,6 +142,7 @@ object ReservationHandler {
     private val expiresAt = Instant.now().plusMillis(reservationTtl.toMillis)
     private var clientId: Option[ClientId] = None
     private var resolvedSeatRefs: Map[SeatId, ActorRef] = Map.empty
+    private var seatZones: Map[SeatId, Zone] = Map.empty
 
     override def preStart(): Unit = {
       context.setReceiveTimeout(responseTimeout)
@@ -151,7 +154,9 @@ object ReservationHandler {
     private def validatingSession: Receive = {
       case SessionValid(validClientId) =>
         clientId = Some(validClientId)
-        resolvedSeatRefs = seatRefResolver.resolve(request.matchId, request.zone, request.seatIds)
+        val (refs, zones) = seatRefResolver.resolveAll(request.matchId, request.seatIds)
+        resolvedSeatRefs = refs
+        seatZones = zones
 
         val missingSeats = request.seatIds.diff(resolvedSeatRefs.keySet)
         if (request.seatIds.isEmpty || missingSeats.nonEmpty) {
@@ -180,7 +185,9 @@ object ReservationHandler {
 
     private def allocatingSeats: Receive = {
       case AllocationSucceeded(_, _, succeededBookingId, seatIds) if succeededBookingId == bookingId =>
-        val total = seatIds.size * pricing(request.zone)
+        val total = seatIds.map { id =>
+          pricing(seatZones.getOrElse(id, request.zone))
+        }.sum
         val record = ReservationRecord(
           reservationId = reservationId,
           bookingId = bookingId,
@@ -271,6 +278,7 @@ object ReservationHandler {
 final class ReservationHandler(
     sessionManager: ActorRef,
     seatAllocator: ActorRef,
+    paymentGateway: ActorRef,
     seatRefResolver: ReservationHandler.SeatRefResolver,
     repository: ReservationHandler.ReservationRepository,
     reservationTtl: FiniteDuration,
@@ -283,6 +291,8 @@ final class ReservationHandler(
   import context.dispatcher
 
   private var reservations: Map[ReservationId, ReservationRecord] = Map.empty
+
+  private var paymentWaiters: Map[ReservationId, ActorRef] = Map.empty
 
   override def receive: Receive = {
     case request: ReserveSeats =>
@@ -340,24 +350,48 @@ final class ReservationHandler(
           sender() ! Status.Failure(new NoSuchElementException(s"Reservation $reservationId not found"))
       }
 
+    case InitPayment(reservationId, amount) =>
+      log.info(s"[DEBUG] InitPayment: id=$reservationId amount=$amount known=${reservations.keySet.take(5)} statuses=${reservations.mapValues(_.status).take(5)}")
+      reservations.get(reservationId) match {
+        case Some(record) if record.status == Pending =>
+          paymentWaiters += reservationId -> sender()
+          paymentGateway ! InitPayment(reservationId, amount)
+        case Some(record) =>
+          log.warning(s"[DEBUG] InitPayment rejected: $reservationId status=${record.status}")
+          sender() ! Status.Failure(new IllegalStateException(s"Reservation $reservationId cannot be paid"))
+        case None =>
+          log.warning(s"[DEBUG] InitPayment not found: $reservationId")
+          sender() ! Status.Failure(new NoSuchElementException(s"Reservation $reservationId not found"))
+      }
+
     case PaymentSuccess(reservationId, transactionId) =>
+      val waiter = paymentWaiters.get(reservationId)
       reservations.get(reservationId).filter(_.status == Pending).foreach { record =>
         repository.markPaid(reservationId, transactionId)
         reservations += reservationId -> record.copy(status = PaidStatus)
         startFinalization(reservationId, record, context.system.deadLetters, ConfirmAction)
       }
+      // Reply to HTTP route immediately
+      waiter.foreach(_ ! PaymentSuccess(reservationId, transactionId))
+      paymentWaiters -= reservationId
 
     case PaymentFailed(reservationId, reason) =>
+      val waiter = paymentWaiters.get(reservationId)
       reservations.get(reservationId).filter(r => r.status == Pending || r.status == PaidStatus).foreach { record =>
         repository.markPaymentFailed(reservationId, reason)
         startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction("payment-failed"))
       }
+      waiter.foreach(_ ! PaymentFailed(reservationId, reason))
+      paymentWaiters -= reservationId
 
     case PaymentTimeout(reservationId) =>
+      val waiter = paymentWaiters.get(reservationId)
       reservations.get(reservationId).filter(r => r.status == Pending || r.status == PaidStatus).foreach { record =>
         repository.markPaymentTimeout(reservationId)
         startFinalization(reservationId, record, context.system.deadLetters, ReleaseAction("payment-timeout"))
       }
+      waiter.foreach(_ ! PaymentTimeout(reservationId))
+      paymentWaiters -= reservationId
 
     case ExpireReservation(reservationId) =>
       reservations.get(reservationId).filter(_.status == Pending).foreach { record =>
