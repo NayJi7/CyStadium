@@ -196,6 +196,7 @@ export const api = {
   adminUpdateMatch: (sessionId: string, id: string, body: Partial<{
     home_team: string; away_team: string; date: string;
     stadium: string; city: string; stage: string; highlight: boolean;
+    total_capacity: number; zones: Record<string, number>;
   }>) =>
     request<AdminMatch>(`/api/admin/matches/${id}`, { method: "PUT", sessionId, body }),
 
@@ -217,6 +218,9 @@ export const api = {
     request<unknown>(`/api/admin/users/${userId}`, {
       method: "PATCH", sessionId, body: { is_admin: isAdmin },
     }),
+
+  getActorStatus: (sessionId: string) =>
+    request<any>(`/api/admin/actors`, { sessionId }),
 };
 
 export type PaymentSuccessResponse = {

@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { LayoutDashboard, Ticket, ScrollText, Users, ShieldAlert } from "lucide-react";
+import { LayoutDashboard, Ticket, ScrollText, Users, ShieldAlert, Cpu } from "lucide-react";
 import { api } from "@/lib/api";
-import { getSession } from "@/lib/session";
+import { getSession, clearSession } from "@/lib/session";
 import { AuroraBackground } from "@/components/AuroraBackground";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 import { AdminMatches } from "@/components/admin/AdminMatches";
 import { AdminReservations } from "@/components/admin/AdminReservations";
 import { AdminUsers } from "@/components/admin/AdminUsers";
+import { AdminScalaMonitor } from "@/components/admin/AdminScalaMonitor";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -18,6 +19,7 @@ const TABS = [
   { id: "matches",      label: "Matchs",        icon: Ticket },
   { id: "reservations", label: "Réservations",  icon: ScrollText },
   { id: "users",        label: "Utilisateurs",  icon: Users },
+  { id: "scala",        label: "Scala Monitor", icon: Cpu },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -34,7 +36,10 @@ export default function AdminPage() {
     setSessionId(session.sessionId);
     api.me(session.sessionId)
       .then(({ is_admin }) => setAuthState(is_admin ? "ready" : "forbidden"))
-      .catch(() => setAuthState("unauthenticated"));
+      .catch(() => {
+        clearSession();
+        setAuthState("unauthenticated");
+      });
   }, []);
 
   return (
@@ -69,7 +74,10 @@ export default function AdminPage() {
         {authState === "unauthenticated" && (
           <div className="rounded-2xl border border-gold-300/20 bg-gold-300/5 p-10 text-center">
             <ShieldAlert size={40} className="mx-auto mb-3 text-gold-300/50" />
-            <p className="text-lg text-white/70">Connectez-vous pour accéder au back-office.</p>
+            <p className="text-lg text-white/70 mb-4">Connectez-vous pour accéder au back-office.</p>
+            <a href="/login" className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-6 py-2.5 text-sm font-semibold text-navy-950 hover:bg-cyan-300 transition-colors">
+              Se connecter
+            </a>
           </div>
         )}
 
@@ -112,6 +120,8 @@ export default function AdminPage() {
               {activeTab === "matches"      && <AdminMatches      sessionId={sessionId} />}
               {activeTab === "reservations" && <AdminReservations sessionId={sessionId} />}
               {activeTab === "users"        && <AdminUsers        sessionId={sessionId} />}
+              {activeTab === "scala"        && <AdminScalaMonitor sessionId={sessionId} />}
+
             </motion.div>
           </>
         )}
