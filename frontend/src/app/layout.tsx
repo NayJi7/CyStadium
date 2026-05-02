@@ -22,6 +22,11 @@ export const metadata: Metadata = {
   title: "CyStadium, Secure your seat. Instantly.",
   description:
     "Réservez votre place pour les matchs de la Coupe du Monde. Temps réel, paiement sécurisé, zéro surbooking.",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
