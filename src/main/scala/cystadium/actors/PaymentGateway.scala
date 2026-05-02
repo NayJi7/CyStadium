@@ -58,17 +58,21 @@ final class PaymentGateway(
   override def receive: Receive = {
     case InitPayment(reservationId, amount) =>
       val replyTo = sender()
+      log.info(s"[DEBUG] PaymentGateway: InitPayment id=$reservationId amount=$amount")
       outcomePicker() match {
         case Success =>
           context.system.scheduler.scheduleOnce(successDelay) {
+            log.info(s"[DEBUG] PaymentGateway: sending PaymentSuccess for $reservationId")
             replyTo ! PaymentSuccess(reservationId, transactionIdGenerator())
           }
         case Failed =>
           context.system.scheduler.scheduleOnce(failedDelay) {
+            log.info(s"[DEBUG] PaymentGateway: sending PaymentFailed for $reservationId")
             replyTo ! PaymentFailed(reservationId, s"payment_declined_for_${amount.formatted("%.2f")}")
           }
         case Timeout =>
-          context.system.scheduler.scheduleOnce(paymentTimeout) {
+          context.system.scheduler.scheduleOnce(successDelay) {
+            log.info(s"[DEBUG] PaymentGateway: sending PaymentTimeout for $reservationId")
             replyTo ! PaymentTimeout(reservationId)
           }
       }
