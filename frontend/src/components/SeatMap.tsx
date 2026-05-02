@@ -22,22 +22,76 @@ export type Zones = Record<string, number>;
 
 const DEFAULT_TOTAL_CAPACITY = 1380;
 
-function generateStadiumData(availableCounts: Zones, totalCapacity: number = DEFAULT_TOTAL_CAPACITY) {
-  const seats: Seat[] = [];
-  let seatIdCounter = 1;
-  let remainingSeats = totalCapacity;
-  const availableToPlace: Record<string, number> = { ...availableCounts };
-  let r = 0;
+function generateStadiumData(zones: Zones) {
+  const BASE_RX = 260;
+  const BASE_RY = 170;
+  const RING_GAP = 22;
+  const SEAT_SPACING = 15;
+  const MAX_RINGS = 12;
 
-  while (remainingSeats > 0) {
-    const rx = 280 + r * 24;
-    const ry = 190 + r * 24;
-    const perimeter = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2);
-    let numSeats = Math.floor(perimeter / 18);
-    if (remainingSeats < numSeats) numSeats = remainingSeats;
+  function getZone(ringIdx: number, normAngle: number): Zone {
+    const isCurve = normAngle <= Math.PI / 4 || normAngle > 7 * Math.PI / 4 ||
+                    (normAngle > 3 * Math.PI / 4 && normAngle <= 5 * Math.PI / 4);
+    const isCentral =
+      (normAngle > Math.PI / 2 - 0.4 && normAngle < Math.PI / 2 + 0.4) ||
+      (normAngle > 3 * Math.PI / 2 - 0.4 && normAngle < 3 * Math.PI / 2 + 0.4);
+
+    if (isCurve) {
+      return ringIdx >= 4 ? "Populaire" : "Standard";
+    } else if (isCentral) {
+      if (ringIdx < 2) return "VIP";
+      if (ringIdx < 3) return "Or";
+      if (ringIdx < 5) return "Standard";
+      return "Populaire";
+    } else {
+      return ringIdx < 2 ? "Or" : ringIdx < 4 ? "Standard" : "Populaire";
+    }
+  }
+
+  function buildArcTable(rx: number, ry: number, steps: number): number[] {
+    const table: number[] = [0];
+    let total = 0;
+    for (let i = 1; i <= steps; i++) {
+      const a0 = ((i - 1) / steps) * Math.PI * 2;
+      const a1 = (i / steps) * Math.PI * 2;
+      const dx = rx * (Math.cos(a1) - Math.cos(a0));
+      const dy = ry * (Math.sin(a1) - Math.sin(a0));
+      total += Math.sqrt(dx * dx + dy * dy);
+      table.push(total);
+    }
+    return table;
+  }
+
+  function angleAtArc(arcTable: number[], targetArc: number, steps: number): number {
+    const total = arcTable[steps];
+    const t = ((targetArc % total) + total) % total;
+    let lo = 0, hi = steps;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (arcTable[mid] < t) lo = mid + 1; else hi = mid;
+    }
+    if (lo === 0) return 0;
+    const prev = arcTable[lo - 1];
+    const curr = arcTable[lo];
+    const frac = (t - prev) / (curr - prev);
+    return ((lo - 1 + frac) / steps) * Math.PI * 2;
+  }
+
+  // 1. Generate a generous template oval
+  let seatIdCounter = 1;
+  const template: { id: string; section: string; row: number; num: number; x: number; y: number; rotation: number; zone: Zone }[] = [];
+
+  for (let r = 0; r < MAX_RINGS; r++) {
+    const rx = BASE_RX + r * RING_GAP;
+    const ry = BASE_RY + r * RING_GAP;
+    const steps = 500;
+    const arcTable = buildArcTable(rx, ry, steps);
+    const totalLen = arcTable[steps];
+    const numSeats = Math.round(totalLen / SEAT_SPACING);
 
     for (let s = 0; s < numSeats; s++) {
-      const angle = (s / numSeats) * Math.PI * 2;
+      const arcPos = (s / numSeats) * totalLen;
+      const angle = angleAtArc(arcTable, arcPos, steps);
       const x = rx * Math.cos(angle);
       const y = ry * Math.sin(angle);
 
@@ -49,32 +103,10 @@ function generateStadiumData(availableCounts: Zones, totalCapacity: number = DEF
       else if (normAngle > (3 * Math.PI) / 4 && normAngle <= (5 * Math.PI) / 4) sectionName = "Ouest";
       else if (normAngle > (5 * Math.PI) / 4 && normAngle <= (7 * Math.PI) / 4) sectionName = "Nord";
 
-      const isCurve = sectionName === "Est" || sectionName === "Ouest";
-      const isCentral =
-        (normAngle > Math.PI / 2 - 0.4 && normAngle < Math.PI / 2 + 0.4) ||
-        (normAngle > (3 * Math.PI) / 2 - 0.4 && normAngle < (3 * Math.PI) / 2 + 0.4);
-
-      let zone: Zone = "Standard";
-      if (isCurve) zone = r >= 3 ? "Populaire" : "Standard";
-      else if (isCentral) {
-        if (r < 2) zone = "VIP";
-        else if (r < 4) zone = "Or";
-        else zone = "Standard";
-      } else {
-        zone = r < 3 ? "Or" : "Standard";
-      }
-
+      const zone = getZone(r, normAngle);
       const rotation = (angle + Math.PI / 2) * (180 / Math.PI);
 
-      let isAvailable = false;
-      if (availableToPlace[zone] && availableToPlace[zone] > 0) {
-        if (Math.random() < 0.6) {
-          isAvailable = true;
-          availableToPlace[zone]--;
-        }
-      }
-
-      seats.push({
+      template.push({
         id: `S${seatIdCounter++}`,
         section: sectionName,
         row: r + 1,
@@ -83,16 +115,82 @@ function generateStadiumData(availableCounts: Zones, totalCapacity: number = DEF
         y,
         rotation,
         zone,
-        status: isAvailable ? "available" : "occupied",
       });
     }
-
-    remainingSeats -= numSeats;
-    r++;
   }
 
-  const maxRx = 280 + (r - 1) * 24;
-  const maxRy = 190 + (r - 1) * 24;
+  // 2. Group template positions by zone, sorted inner (low row) first
+  const byZone: Record<string, typeof template> = {};
+  for (const pos of template) {
+    if (!byZone[pos.zone]) byZone[pos.zone] = [];
+    byZone[pos.zone].push(pos);
+  }
+  for (const z of Object.keys(byZone)) {
+    byZone[z].sort((a, b) => a.row - b.row || a.num - b.num);
+  }
+
+  // 3. Keep exactly as many positions as we have seats per zone (inner rings first)
+  //    For the last (partial) ring, distribute seats evenly around the oval
+  const seats: Seat[] = [];
+  let maxRx = 0;
+  let maxRy = 0;
+  const zoneCounts: Record<string, number> = { VIP: 0, Or: 0, Standard: 0, Populaire: 0 };
+  for (const [z, count] of Object.entries(zones)) {
+    zoneCounts[z] = count;
+  }
+
+  for (const [z, positions] of Object.entries(byZone)) {
+    const keep = zoneCounts[z] ?? positions.length;
+    if (keep >= positions.length) {
+      // Take all
+      for (const p of positions) {
+        const rx = Math.abs(p.x);
+        const ry = Math.abs(p.y);
+        if (rx > maxRx) maxRx = rx;
+        if (ry > maxRy) maxRy = ry;
+        seats.push({ ...p, status: "available" as const });
+      }
+      continue;
+    }
+
+    // Group by ring (row) to find complete vs partial rings
+    const byRow: Record<number, typeof positions> = {};
+    for (const p of positions) {
+      if (!byRow[p.row]) byRow[p.row] = [];
+      byRow[p.row].push(p);
+    }
+    const rows = Object.keys(byRow).map(Number).sort((a, b) => a - b);
+
+    let remaining = keep;
+    for (let ri = 0; ri < rows.length; ri++) {
+      const rowPositions = byRow[rows[ri]];
+      if (remaining >= rowPositions.length) {
+        // Full ring — take all
+        for (const p of rowPositions) {
+          const rx = Math.abs(p.x);
+          const ry = Math.abs(p.y);
+          if (rx > maxRx) maxRx = rx;
+          if (ry > maxRy) maxRy = ry;
+          seats.push({ ...p, status: "available" as const });
+        }
+        remaining -= rowPositions.length;
+      } else if (remaining > 0) {
+        // Partial ring — distribute evenly around the oval
+        for (let i = 0; i < remaining; i++) {
+          // Pick evenly: stride = rowPositions.length / remaining
+          const idx = Math.floor(i * rowPositions.length / remaining);
+          const p = rowPositions[idx];
+          const rx = Math.abs(p.x);
+          const ry = Math.abs(p.y);
+          if (rx > maxRx) maxRx = rx;
+          if (ry > maxRy) maxRy = ry;
+          seats.push({ ...p, status: "available" as const });
+        }
+        remaining = 0;
+      }
+    }
+  }
+
   return { seats, maxRx, maxRy };
 }
 
@@ -105,12 +203,15 @@ function mapApiSeats(
   apiSeats: SeatInfo[],
   fallbackData: { seats: Seat[]; maxRx: number; maxRy: number }
 ): { seats: Seat[]; maxRx: number; maxRy: number } {
-  // Grouper les sièges API par zone
+  // Grouper les sièges API par zone, triés par label pour un mapping déterministe
   const apiByZone = new Map<string, SeatInfo[]>();
   for (const s of apiSeats) {
     const z = s.zone;
     if (!apiByZone.has(z)) apiByZone.set(z, []);
     apiByZone.get(z)!.push(s);
+  }
+  for (const [, seats] of apiByZone) {
+    seats.sort((a, b) => (a.label ?? "").localeCompare(b.label ?? ""));
   }
 
   // Grouper les positions générées par zone
@@ -121,7 +222,6 @@ function mapApiSeats(
   }
 
   const mapped: Seat[] = [];
-  const usedLayoutIds = new Set<string>();
 
   // Assigner chaque siège API à la position générée de même index dans sa zone
   for (const [zone, zoneApiSeats] of apiByZone) {
@@ -129,7 +229,6 @@ function mapApiSeats(
     zoneApiSeats.forEach((apiSeat, idx) => {
       const layoutSeat = layoutSeats[idx];
       if (!layoutSeat) return;
-      usedLayoutIds.add(layoutSeat.id);
       mapped.push({
         id: apiSeat.seat_id,
         section: layoutSeat.section,
@@ -142,13 +241,6 @@ function mapApiSeats(
         status: apiSeat.status === "free" ? "available" : "occupied",
       });
     });
-  }
-
-  // Garder les positions non couvertes par l'API (siège fictif, display only)
-  for (const s of fallbackData.seats) {
-    if (!usedLayoutIds.has(s.id)) {
-      mapped.push({ ...s, status: "occupied" });
-    }
   }
 
   return { seats: mapped, maxRx: fallbackData.maxRx, maxRy: fallbackData.maxRy };
@@ -170,13 +262,8 @@ export function SeatMap({ zones, seats: apiSeats, selectedSeats, onToggleSeat, z
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    // Si on a les vrais sièges depuis l'API, générer exactement ce nombre de positions
-    // Sinon utiliser le total par défaut (1380 pour un grand stade)
-    const totalCapacity = apiSeats && apiSeats.length > 0
-      ? apiSeats.length
-      : DEFAULT_TOTAL_CAPACITY;
-    setFallbackData(generateStadiumData(zones, totalCapacity));
-  }, [zones, apiSeats?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    setFallbackData(generateStadiumData(zones));
+  }, [zones]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stadiumData = useMemo(() => {
     if (apiSeats && apiSeats.length > 0) {
@@ -207,7 +294,7 @@ export function SeatMap({ zones, seats: apiSeats, selectedSeats, onToggleSeat, z
     return stadiumData.seats.map((s) => {
       const upd = liveUpdates[s.id];
       if (!upd) return s;
-      return { ...s, status: upd === "free" ? "available" : "occupied" } as Seat;
+      return { ...s, status: upd === "free" ? "available" : (upd as Seat["status"]) } as Seat;
     });
   }, [stadiumData.seats, liveUpdates]);
 
@@ -269,17 +356,19 @@ export function SeatMap({ zones, seats: apiSeats, selectedSeats, onToggleSeat, z
 
         {seats.map((seat) => {
           const isSelected = selectedSeats.some((s) => s.id === seat.id);
-          const isOccupied = seat.status === "occupied";
+          const isOccupied = seat.status !== "available";
           const zoneInfo = ZONE_META[seat.zone];
           if (!zoneInfo) return null;
           const isFilteredOut = zoneFilter && seat.zone !== zoneFilter;
+
+          const statusColor = isOccupied ? "bg-gray-500/30 border-gray-600/30" : "";
 
           return (
             <div
               key={seat.id}
               className={`absolute transition-all duration-200 flex items-end justify-center pb-[2px]
                 w-[14px] h-[16px] rounded-t-[4px] rounded-b-[2px] border-t-[4px] border-x-[1px] border-b-[1px]
-                ${isOccupied ? "bg-gray-800 border-gray-700 cursor-not-allowed opacity-30" : "cursor-pointer"}
+                ${isOccupied && !isSelected ? `${statusColor} cursor-not-allowed opacity-60` : "cursor-pointer"}
                 ${isFilteredOut && !isSelected ? `${zoneInfo.seatBg} ${zoneInfo.seatBorder} opacity-20 pointer-events-none scale-90 grayscale` : ""}
                 ${!isOccupied && !isSelected && !isFilteredOut ? `${zoneInfo.seatBg} ${zoneInfo.seatBorder} opacity-90 hover:opacity-100 hover:scale-[2] hover:z-30` : ""}
                 ${isSelected ? `${zoneInfo.seatBg} border-white ring-2 ring-white scale-[2] z-30 ${zoneInfo.shadow}` : ""}
