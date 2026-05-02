@@ -38,6 +38,8 @@ object ReservationHandler {
       status: String
   )
 
+  case object GetActiveReservationCount
+
   trait ReservationRepository {
     def createReservation(snapshot: ReservationSnapshot): Unit
     def markPaid(reservationId: ReservationId, transactionId: String): Unit
@@ -419,6 +421,10 @@ final class ReservationHandler(
 
     case FinalizationFailed(reservationId, replyTo, reason) =>
       replyTo ! Status.Failure(new RuntimeException(s"Reservation $reservationId finalization failed: $reason"))
+
+    case GetActiveReservationCount =>
+      val activeCount = reservations.values.count(r => r.status == Pending || r.status == PaidStatus)
+      sender() ! activeCount
   }
 
   private def ticketCode(reservationId: ReservationId): String =

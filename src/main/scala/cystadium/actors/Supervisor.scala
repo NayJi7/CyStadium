@@ -139,13 +139,19 @@ class Supervisor(
               matchId.toString -> MatchManagerStatus(matchId.toString, Map.empty)
           }
       }
-      val statusFuture = Future.sequence(mmFutures).map(_.toMap).map { mmStatus =>
+      val rhFuture = (reservationHandler ? ReservationHandler.GetActiveReservationCount).mapTo[Int].recover { case _ => 0 }
+      val pgFuture = (paymentGateway ? PaymentGateway.GetPendingPaymentCount).mapTo[Int].recover { case _ => 0 }
+      val statusFuture = for {
+        mmStatus <- Future.sequence(mmFutures).map(_.toMap)
+        resCount <- rhFuture
+        pgCount  <- pgFuture
+      } yield {
         val totalZones = mmStatus.values.map(_.zones.size).sum
         val totalSeats = mmStatus.values.flatMap(_.zones.values.map(_.seatActorCount)).sum
         ActorStatus(
           matchManagers = mmStatus,
-          reservationHandlerReservations = 0,
-          paymentGatewayPending = 0,
+          reservationHandlerReservations = resCount,
+          paymentGatewayPending = pgCount,
           totalSeatActors = totalSeats,
           totalZoneManagers = totalZones,
           sessionManagerActive = true,
@@ -153,12 +159,12 @@ class Supervisor(
           reservationHandlerActive = true,
           paymentGatewayActive = true
         )
-      }.recover {
+      }
+      statusFuture.recover {
         case e: Exception =>
           log.error(s"Global status aggregation failed: ${e.getMessage}")
           ActorStatus(Map.empty, 0, 0, 0, 0, false, false, false, false)
-      }
-      akka.pattern.pipe(statusFuture).to(replyTo)
+      }.pipeTo(replyTo)
   }
 }
 

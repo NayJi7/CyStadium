@@ -11,6 +11,7 @@ object PaymentGateway {
   case object Success extends PaymentOutcome
   case object Failed extends PaymentOutcome
   case object Timeout extends PaymentOutcome
+  case object GetPendingPaymentCount
 
   type OutcomePicker = () => PaymentOutcome
   type TransactionIdGenerator = () => String
@@ -55,26 +56,35 @@ final class PaymentGateway(
   import PaymentGateway._
   import context.dispatcher
 
+  private var pendingCount: Int = 0
+
   override def receive: Receive = {
     case InitPayment(reservationId, amount) =>
       val replyTo = sender()
       log.info(s"[DEBUG] PaymentGateway: InitPayment id=$reservationId amount=$amount")
+      pendingCount += 1
       outcomePicker() match {
         case Success =>
           context.system.scheduler.scheduleOnce(successDelay) {
             log.info(s"[DEBUG] PaymentGateway: sending PaymentSuccess for $reservationId")
+            pendingCount = Math.max(0, pendingCount - 1)
             replyTo ! PaymentSuccess(reservationId, transactionIdGenerator())
           }
         case Failed =>
           context.system.scheduler.scheduleOnce(failedDelay) {
             log.info(s"[DEBUG] PaymentGateway: sending PaymentFailed for $reservationId")
+            pendingCount = Math.max(0, pendingCount - 1)
             replyTo ! PaymentFailed(reservationId, s"payment_declined_for_${amount.formatted("%.2f")}")
           }
         case Timeout =>
           context.system.scheduler.scheduleOnce(successDelay) {
             log.info(s"[DEBUG] PaymentGateway: sending PaymentTimeout for $reservationId")
+            pendingCount = Math.max(0, pendingCount - 1)
             replyTo ! PaymentTimeout(reservationId)
           }
       }
+
+    case GetPendingPaymentCount =>
+      sender() ! pendingCount
   }
 }
