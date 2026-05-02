@@ -36,14 +36,14 @@ export function AdminMatchModal({ sessionId, match, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
 
   const zonesSum = form.vip + form.or + form.standard + form.populaire;
-  const sumOk = isEdit || zonesSum === form.total_capacity;
+  const sumOk = zonesSum === form.total_capacity;
 
   const set = (field: string, value: string | number | boolean) =>
     setForm(f => ({ ...f, [field]: value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isEdit && !sumOk) { setError("La somme des zones doit égaler la capacité totale."); return; }
+    if (!sumOk) { setError("La somme des zones doit égaler la capacité totale."); return; }
     setSaving(true); setError(null);
     try {
       if (isEdit) {
@@ -52,6 +52,8 @@ export function AdminMatchModal({ sessionId, match, onClose, onSaved }: Props) {
           date: form.date, stadium: form.stadium,
           city: form.city || undefined, stage: form.stage || undefined,
           highlight: form.highlight,
+          total_capacity: form.total_capacity,
+          zones: { VIP: form.vip, Or: form.or, Standard: form.standard, Populaire: form.populaire },
         });
       } else {
         await api.adminCreateMatch(sessionId, {
@@ -131,34 +133,30 @@ export function AdminMatchModal({ sessionId, match, onClose, onSaved }: Props) {
               className="w-full rounded-lg border border-white/10 bg-navy-800 px-3 py-2 text-sm text-white focus:border-cyan-400/50 focus:outline-none" />
           </div>
 
-          {!isEdit && (
-            <>
-              <div>
-                <label className="mb-1 block text-xs text-white/50">Capacité totale du stade</label>
-                <input required type="number" min={1} value={form.total_capacity || ""}
-                  onChange={e => set("total_capacity", parseInt(e.target.value) || 0)}
-                  className="w-full rounded-lg border border-white/10 bg-navy-800 px-3 py-2 text-sm text-white focus:border-cyan-400/50 focus:outline-none" />
-              </div>
-              <div>
-                <label className="mb-2 block text-xs text-white/50">
-                  Places par zone
-                  <span className={`ml-2 ${sumOk ? "text-emerald-400" : "text-red-400"}`}>
-                    ({zonesSum}/{form.total_capacity})
-                  </span>
-                </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(["vip","or","standard","populaire"] as const).map((z, i) => (
-                    <div key={z}>
-                      <div className="mb-1 text-center text-[10px] uppercase tracking-wider text-white/30">{ZONES[i]}</div>
-                      <input type="number" min={0} value={form[z] || ""}
-                        onChange={e => set(z, parseInt(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-white/10 bg-navy-800 px-2 py-2 text-center text-sm text-white focus:border-cyan-400/50 focus:outline-none" />
-                    </div>
-                  ))}
+          <div>
+            <label className="mb-1 block text-xs text-white/50">Capacité totale du stade</label>
+            <input required type="number" min={1} value={form.total_capacity || ""}
+              onChange={e => set("total_capacity", parseInt(e.target.value) || 0)}
+              className="w-full rounded-lg border border-white/10 bg-navy-800 px-3 py-2 text-sm text-white focus:border-cyan-400/50 focus:outline-none" />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs text-white/50">
+              Places par zone
+              <span className={`ml-2 ${sumOk ? "text-emerald-400" : "text-red-400"}`}>
+                ({zonesSum}/{form.total_capacity})
+              </span>
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {(["vip","or","standard","populaire"] as const).map((z, i) => (
+                <div key={z}>
+                  <div className="mb-1 text-center text-[10px] uppercase tracking-wider text-white/30">{ZONES[i]}</div>
+                  <input type="number" min={0} value={form[z] || ""}
+                    onChange={e => set(z, parseInt(e.target.value) || 0)}
+                    className="w-full rounded-lg border border-white/10 bg-navy-800 px-2 py-2 text-center text-sm text-white focus:border-cyan-400/50 focus:outline-none" />
                 </div>
-              </div>
-            </>
-          )}
+              ))}
+            </div>
+          </div>
 
           <div className="flex items-center gap-2">
             <input type="checkbox" id="highlight" checked={form.highlight}
@@ -171,7 +169,7 @@ export function AdminMatchModal({ sessionId, match, onClose, onSaved }: Props) {
 
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="outline" size="md" className="flex-1" onClick={onClose}>Annuler</Button>
-            <Button type="submit" size="md" className="flex-1" disabled={saving || (!isEdit && !sumOk)}>
+            <Button type="submit" size="md" className="flex-1" disabled={saving || !sumOk}>
               {saving ? "Sauvegarde…" : isEdit ? "Enregistrer" : "Créer le match"}
             </Button>
           </div>

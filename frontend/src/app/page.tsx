@@ -381,7 +381,7 @@ function StadiumSection() {
       {/* Image panoramique en fond avec parallax */}
       <motion.div style={{ y: bgY }} className="absolute inset-0 -z-10">
         <Image
-          src="https://images.unsplash.com/photo-1518605368461-1ee12523f05f?w=1920&q=70"
+          src="https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=1920&q=70"
           alt=""
           fill
           sizes="100vw"

@@ -19,11 +19,11 @@ const STADIUM_IMAGES = [
   "https://images.unsplash.com/photo-1470229538611-16ba8c7ffbd7?w=800&q=70", // stade plein vue générale
   "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=800&q=70", // stade nuit vue aérienne
   "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&q=70", // stade vide vu du haut
-  "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=800&q=70", // ambiance match
   "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=800&q=70", // joueurs sur terrain
-  "https://images.unsplash.com/photo-1551958219-acbc595d9e9d?w=800&q=70", // match de nuit
   "https://images.unsplash.com/photo-1489944440615-453fc2b6a9a9?w=800&q=70", // pelouse gros plan
-  "https://images.unsplash.com/photo-1537167117046-81b43de1abb3?w=800&q=70", // tribune supporters
+  "https://images.unsplash.com/photo-1553778263-73a83bab9b0c?w=800&q=70", // match football
+  "https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=800&q=70", // supporters en tribune
+  "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=800&q=70", // stade lumières
 ];
 
 function pickImage(id: string): string {
@@ -78,10 +78,6 @@ function MatchCard({ m }: { m: MatchItem }) {
             <Flame size={12} /> A l&apos;affiche
           </span>
         )}
-
-        <span className="absolute right-4 top-4 z-10 rounded-full bg-navy-950/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-white/70 backdrop-blur-md">
-          {m.stage ?? "Match"}
-        </span>
 
         <div className="absolute inset-x-0 bottom-0 flex items-end justify-center gap-5 pb-3">
           <div className="flex flex-col items-center">

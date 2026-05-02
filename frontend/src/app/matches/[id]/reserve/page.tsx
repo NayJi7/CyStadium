@@ -106,7 +106,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
   const handleConfirm = async () => {
     if (selectedSeats.length === 0 || !session) return;
     try {
-      const zone = selectedSeats[0].zone;
+      const zone = selectedSeats[0].zone; // zone is no longer limiting, just used as default for pricing
       const seatIds = selectedSeats.map((s) => s.id);
       const res = await api.createReservation(matchId!, zone, seatIds, session) as SeatsReservedResponse;
       setPayment({ reservationId: res.reservation_id, amount: totalPrice });
@@ -185,7 +185,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
                 <MapPin size={16} className="text-cyan-400" />
                 {matchMeta ? matchMeta.stadium : "Stade Olympique"} · Plan Interactif
               </p>
-              <LiveStatus matchId={matchId ?? params.id} onSeatStatus={handleSeatStatus} />
+              <LiveStatus matchId={matchId ?? ""} onSeatStatus={handleSeatStatus} />
             </div>
           </motion.div>
         </div>
