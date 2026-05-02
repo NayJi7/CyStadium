@@ -51,13 +51,35 @@ class MatchRoutes(
         },
         path(JavaUUID) { matchId =>
           get {
-            matchManagerMap.get(matchId) match {
-              case None =>
-                complete(StatusCodes.NotFound -> errorJson(s"Match $matchId introuvable"))
-              case Some(mm) =>
-                onSuccess((mm ? CheckAvailability(matchId)).mapTo[AvailabilityResult]) { r =>
-                  complete(StatusCodes.OK -> r)
+            val result: Future[Option[MatchDto]] = db.run(Tables.matches.filter(_.id === matchId).result.headOption).flatMap {
+              case None => Future.successful(None)
+              case Some(r) =>
+                matchManagerMap.get(matchId) match {
+                  case None =>
+                    db.run(Tables.zones.filter(_.matchId === matchId).result).map { zones =>
+                      val zoneMap = zones.map(z => z.name -> z.capacity).toMap
+                      Some(MatchDto(r.id, r.homeTeam, r.awayTeam,
+                        r.matchDate.toString, r.stadium, r.city, r.stage, r.status, r.highlight,
+                        zoneMap, toSlug(r.homeTeam, r.awayTeam)))
+                    }
+                  case Some(mm) =>
+                    (mm ? CheckAvailability(matchId)).mapTo[AvailabilityResult]
+                      .map { avail =>
+                        val zones = avail.zones.map { case (z, n) => zoneToName(z) -> n }
+                        Some(MatchDto(r.id, r.homeTeam, r.awayTeam,
+                          r.matchDate.toString, r.stadium, r.city, r.stage, r.status, r.highlight,
+                          zones, toSlug(r.homeTeam, r.awayTeam)))
+                      }
+                      .recover { case _ =>
+                        Some(MatchDto(r.id, r.homeTeam, r.awayTeam,
+                          r.matchDate.toString, r.stadium, r.city, r.stage, r.status, r.highlight,
+                          Map.empty, toSlug(r.homeTeam, r.awayTeam)))
+                      }
                 }
+            }
+            onSuccess(result) {
+              case None    => complete(StatusCodes.NotFound -> errorJson(s"Match $matchId introuvable"))
+              case Some(d) => complete(StatusCodes.OK -> d)
             }
           }
         },

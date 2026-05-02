@@ -42,7 +42,9 @@ case class UpdateMatchRequest(
   homeTeam: Option[String], awayTeam: Option[String],
   date: Option[String],
   stadium: Option[String], city: Option[String], stage: Option[String],
-  highlight: Option[Boolean]
+  highlight: Option[Boolean],
+  totalCapacity: Option[Int],
+  zones: Option[Map[String, Int]]
 )
 
 case class PatchUserRequest(isAdmin: Boolean)
