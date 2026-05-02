@@ -14,7 +14,9 @@ object ZoneManager {
     Props(new ZoneManager(matchId, zone, seatsData))
 
   case class GetSeatRefs(seatIds: Set[SeatId])
-  case class SeatRefsResult(refs: Map[SeatId, ActorRef])
+  case class SeatRefsResult(refs: Map[SeatId, ActorRef], zone: Zone)
+  case object GetStatusCounts
+  case class StatusCounts(zone: String, free: Int, reserved: Int, confirmed: Int, locked: Int)
 }
 
 class ZoneManager(matchId: MatchId, zone: Zone, seatsData: List[(SeatId, Double, SeatStatus)]) 
@@ -57,6 +59,22 @@ class ZoneManager(matchId: MatchId, zone: Zone, seatsData: List[(SeatId, Double,
 
     case ZoneManager.GetSeatRefs(seatIds) =>
       val found = seatRefs.filter { case (id, _) => seatIds.contains(id) }
-      sender() ! ZoneManager.SeatRefsResult(found)
+      sender() ! ZoneManager.SeatRefsResult(found, zone)
+
+    case ZoneManager.GetStatusCounts =>
+      val replyTo = sender()
+      // Ask every SeatActor for its status and count the results
+      val futures = seatRefs.values.map(ref =>
+        (ref ? GetSeatStatus).mapTo[SeatStatusResponse]
+      )
+      Future.sequence(futures).recover {
+        case _: Exception => Nil
+      }.map { responses =>
+        val free = responses.count(_.status == Free)
+        val reserved = responses.count(_.status.isInstanceOf[Reserved])
+        val confirmed = responses.count(_.status.isInstanceOf[Confirmed])
+        val locked = responses.count(_.status == Locked)
+        replyTo ! ZoneManager.StatusCounts(zone.toString, free, reserved, confirmed, locked)
+      }
   }
 }
