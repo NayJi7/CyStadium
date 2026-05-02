@@ -93,7 +93,13 @@ object Codecs {
     }
 
   // ── Événement WebSocket ────────────────────────────────────────────────────
-  implicit val seatStatusEventEncoder: Encoder[SeatStatusEvent] = deriveConfiguredEncoder
+  implicit val seatStatusEventEncoder: Encoder[SeatStatusEvent] = Encoder.instance { ev =>
+    Json.obj(
+      "match_id" -> ev.matchId.asJson,
+      "seat_id"  -> ev.seatId.asJson,
+      "status"   -> ev.status.asJson
+    )
+  }
 
   // ── DTOs HTTP (MatchRoutes / ReservationRoutes) ────────────────────────────
   import cystadium.api.{MatchDto, ZoneDto, SeatDto, ReservationDto, ReservationSeatDto}
@@ -123,6 +129,43 @@ object Codecs {
   implicit val adminMatchDtoEncoder: Encoder[AdminMatchDto]             = deriveConfiguredEncoder
   implicit val adminUserDtoEncoder: Encoder[AdminUserDto]               = deriveConfiguredEncoder
   implicit val adminReservationDtoEncoder: Encoder[AdminReservationDto] = deriveConfiguredEncoder
+
+  // ── Actor monitoring ─────────────────────────────────────────────────
+  // Manual encoders to produce camelCase JSON for the frontend
+  import cystadium.actors.Supervisor._
+
+  implicit val zoneStatusEncoder: Encoder[ZoneStatus] = Encoder.instance { z =>
+    Json.obj(
+      "zone"           -> Json.fromString(z.zone),
+      "totalSeats"     -> Json.fromInt(z.totalSeats),
+      "freeSeats"      -> Json.fromInt(z.freeSeats),
+      "reservedSeats"  -> Json.fromInt(z.reservedSeats),
+      "confirmedSeats" -> Json.fromInt(z.confirmedSeats),
+      "lockedSeats"    -> Json.fromInt(z.lockedSeats),
+      "seatActorCount" -> Json.fromInt(z.seatActorCount)
+    )
+  }
+
+  implicit val matchManagerStatusEncoder: Encoder[MatchManagerStatus] = Encoder.instance { mm =>
+    Json.obj(
+      "matchId" -> Json.fromString(mm.matchId),
+      "zones"   -> Encoder.encodeMap[String, ZoneStatus].apply(mm.zones)
+    )
+  }
+
+  implicit val actorStatusEncoder: Encoder[ActorStatus] = Encoder.instance { a =>
+    Json.obj(
+      "matchManagers"                  -> Encoder.encodeMap[String, MatchManagerStatus].apply(a.matchManagers),
+      "reservationHandlerReservations" -> Json.fromInt(a.reservationHandlerReservations),
+      "paymentGatewayPending"          -> Json.fromInt(a.paymentGatewayPending),
+      "totalSeatActors"                -> Json.fromInt(a.totalSeatActors),
+      "totalZoneManagers"              -> Json.fromInt(a.totalZoneManagers),
+      "sessionManagerActive"           -> Json.fromBoolean(a.sessionManagerActive),
+      "seatAllocatorActive"            -> Json.fromBoolean(a.seatAllocatorActive),
+      "reservationHandlerActive"       -> Json.fromBoolean(a.reservationHandlerActive),
+      "paymentGatewayActive"           -> Json.fromBoolean(a.paymentGatewayActive)
+    )
+  }
 
   // ── Réponses d'erreur standard ────────────────────────────────────────────
   def errorJson(message: String): Json =
