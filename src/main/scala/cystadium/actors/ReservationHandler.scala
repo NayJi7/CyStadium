@@ -296,6 +296,16 @@ final class ReservationHandler(
 
   private var paymentWaiters: Map[ReservationId, ActorRef] = Map.empty
 
+  private def publishReservationCounts(): Unit = {
+    val activeStatuses = Set[ReservationStatus](Pending, PaidStatus)
+    reservations.values
+      .filter(r => activeStatuses.contains(r.status))
+      .groupBy(_.matchId)
+      .foreach { case (matchId, recs) =>
+        context.system.eventStream.publish(ReservationCountEvent(matchId, recs.size))
+      }
+  }
+
   override def receive: Receive = {
     case request: ReserveSeats =>
       context.actorOf(
@@ -317,6 +327,7 @@ final class ReservationHandler(
       val persistedRecord = record.copy(expirationTask = Some(expirationTask))
       repository.createReservation(snapshotOf(persistedRecord))
       reservations += record.reservationId -> persistedRecord
+      publishReservationCounts()
       replyTo ! SeatsReserved(record.reservationId, record.seatRefs.keySet, record.total, record.expiresAt)
 
     case ReservationCreationRejected(conflictingSeats, replyTo) =>
@@ -407,6 +418,7 @@ final class ReservationHandler(
         repository.markConfirmed(reservationId, code)
         reservations += reservationId -> record.copy(status = ConfirmedStatus, expirationTask = None)
       }
+      publishReservationCounts()
       replyTo ! ReservationConfirmed(reservationId, code)
 
     case FinalizationSucceeded(reservationId, replyTo, ReleaseAction(reason)) =>
@@ -415,6 +427,7 @@ final class ReservationHandler(
         repository.markCancelled(reservationId, reason)
         reservations += reservationId -> record.copy(status = CancelledStatus, expirationTask = None)
       }
+      publishReservationCounts()
       if (replyTo != context.system.deadLetters) {
         replyTo ! SeatsReleased(reservationId)
       }

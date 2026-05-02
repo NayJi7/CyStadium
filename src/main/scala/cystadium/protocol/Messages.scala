@@ -81,3 +81,6 @@ case class ReservationConfirmed(reservationId: ReservationId, ticketCode: String
 // SeatActor : context.system.eventStream.publish(SeatStatusEvent(...))
 // Adam      : system.eventStream.subscribe(wsActor, classOf[SeatStatusEvent])
 case class SeatStatusEvent(matchId: MatchId, seatId: SeatId, status: SeatStatus)
+
+// ── Événement réservation — publié par ReservationHandler ──────────────────────
+case class ReservationCountEvent(matchId: MatchId, activeCount: Int)

@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   Calendar,
   MapPin,
-  Radio,
   Ticket,
   Users,
   Star,
@@ -16,9 +15,10 @@ import {
   Flame,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api, ApiError, openLiveSocket, type LiveEvent, type MatchItem } from "@/lib/api";
+import { api, ApiError, type MatchItem } from "@/lib/api";
 import { AuroraBackground } from "@/components/AuroraBackground";
 import { Flag } from "@/components/Flag";
+import { LiveStatus } from "@/components/LiveStatus";
 
 type Zones = Record<string, number>;
 
@@ -67,7 +67,6 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
   const [matchId, setMatchId] = useState<string | null>(null); // UUID résolu
   const [zones, setZones] = useState<Zones | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [liveCount, setLiveCount] = useState(0);
 
   // Résoudre slug ou UUID → MatchItem + UUID réel
   useEffect(() => {
@@ -92,15 +91,6 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
         setError(e instanceof ApiError ? `API ${e.status}` : "Backend indisponible");
       });
     return () => { cancelled = true; };
-  }, [matchId]);
-
-  useEffect(() => {
-    if (!matchId) return;
-    let sock: WebSocket | null = null;
-    try {
-      sock = openLiveSocket(matchId, (_: LiveEvent) => setLiveCount((n) => n + 1));
-    } catch {}
-    return () => sock?.close();
   }, [matchId]);
 
   const total = zones ? Object.values(zones).reduce((a, b) => a + b, 0) : null;
@@ -176,10 +166,7 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
               )}
             </div>
 
-            <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 backdrop-blur-md">
-              <Radio size={14} className="animate-pulse" aria-hidden />
-              Live · {liveCount} events
-            </span>
+            <LiveStatus matchId={matchId} className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 backdrop-blur-md" />
           </div>
         </div>
       </section>

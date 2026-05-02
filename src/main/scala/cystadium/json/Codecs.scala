@@ -95,9 +95,18 @@ object Codecs {
   // ── Événement WebSocket ────────────────────────────────────────────────────
   implicit val seatStatusEventEncoder: Encoder[SeatStatusEvent] = Encoder.instance { ev =>
     Json.obj(
+      "type"    -> Json.fromString("seat_status"),
       "match_id" -> ev.matchId.asJson,
       "seat_id"  -> ev.seatId.asJson,
       "status"   -> ev.status.asJson
+    )
+  }
+
+  implicit val reservationCountEventEncoder: Encoder[ReservationCountEvent] = Encoder.instance { ev =>
+    Json.obj(
+      "type"    -> Json.fromString("reservation_count"),
+      "match_id" -> ev.matchId.asJson,
+      "count"    -> Json.fromInt(ev.activeCount)
     )
   }
 

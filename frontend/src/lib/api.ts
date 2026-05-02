@@ -242,11 +242,9 @@ export function openLiveSocket(matchId: string, onMessage: (ev: LiveEvent) => vo
   return socket;
 }
 
-export type LiveEvent = {
-  match_id: string;
-  seat_id: string;
-  status: "free" | "reserved" | "confirmed" | "locked";
-};
+export type LiveEvent =
+  | { type: "seat_status"; match_id: string; seat_id: string; status: "free" | "reserved" | "confirmed" | "locked" }
+  | { type: "reservation_count"; match_id: string; count: number };
 
 // ── Admin types ──────────────────────────────────────────────────────────────
 

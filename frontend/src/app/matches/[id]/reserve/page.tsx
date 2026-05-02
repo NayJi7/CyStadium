@@ -3,7 +3,8 @@
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, MapPin } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import Swal from "sweetalert2";
 import { api, ApiError, openLiveSocket, type LiveEvent, type MatchItem, type SeatInfo, type SeatsReservedResponse } from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 import { Flag } from "@/components/Flag";
@@ -13,7 +14,6 @@ import { ReservationCart } from "@/components/ReservationCart";
 import { LiveStatus } from "@/components/LiveStatus";
 import { PaymentForm } from "@/components/PaymentForm";
 import { X } from "lucide-react";
-import { AnimatePresence } from "framer-motion";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const MAX_SEATS = 8;
@@ -26,7 +26,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
   const [zoneFilter, setZoneFilter] = useState<Zone | null>(null);
   const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
   const [session, setSession] = useState<string | null>(null);
-  const [liveUpdates, setLiveUpdates] = useState<Record<string, LiveEvent["status"]>>({});
+  const [liveUpdates, setLiveUpdates] = useState<Record<string, "free" | "reserved" | "confirmed" | "locked">>({});
   const [payment, setPayment] = useState<{ reservationId: string; amount: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +75,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
 
   useEffect(() => { setSelectedSeats([]); }, [zones]);
 
-  const handleSeatStatus = useCallback((seatId: string, status: LiveEvent["status"]) => {
+  const handleSeatStatus = useCallback((seatId: string, status: "free" | "reserved" | "confirmed" | "locked") => {
     setLiveUpdates((prev) => ({ ...prev, [seatId]: status }));
     if (status !== "free") {
       setSelectedSeats((prev) => prev.filter((s) => s.id !== seatId));
@@ -118,6 +118,30 @@ export default function ReservePage({ params }: { params: { id: string } }) {
   const handlePaymentSuccess = () => {
     setSelectedSeats([]);
     setTimeout(() => setPayment(null), 1800);
+  };
+
+  const handleCancelPayment = async () => {
+    if (!payment || !session) { setPayment(null); return; }
+    const result = await Swal.fire({
+      title: "Abandonner le paiement ?",
+      text: "Votre réservation sera annulée et les places remises en disponibilité.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Oui, annuler",
+      cancelButtonText: "Rester",
+      customClass: {
+        popup: "bg-[#0a1628] border border-white/10 rounded-2xl",
+        title: "text-white",
+        htmlContainer: "text-white/60",
+        confirmButton: "bg-red-500/80 hover:bg-red-500 text-white text-sm font-semibold px-5 py-2.5 rounded-lg border-0",
+        cancelButton: "bg-white/10 hover:bg-white/20 text-white text-sm font-semibold px-5 py-2.5 rounded-lg border border-white/10",
+      },
+      buttonsStyling: false,
+      backdrop: "rgba(0,0,0,0.7)",
+    });
+    if (!result.isConfirmed) return;
+    api.cancelReservation(payment.reservationId, session).catch(() => {});
+    setPayment(null);
   };
 
   return (
@@ -243,7 +267,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={() => setPayment(null)} />
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={handleCancelPayment} />
             <motion.div
               className="relative z-10 w-full max-w-md"
               initial={{ opacity: 0, y: 20, scale: 0.96 }}
@@ -253,7 +277,7 @@ export default function ReservePage({ params }: { params: { id: string } }) {
             >
               <button
                 type="button"
-                onClick={() => setPayment(null)}
+                onClick={handleCancelPayment}
                 aria-label="Fermer"
                 className="absolute -top-2 -right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-navy-900 text-white/70 transition-colors hover:border-red-400/40 hover:text-red-300"
               >

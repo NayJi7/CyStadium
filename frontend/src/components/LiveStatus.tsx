@@ -1,32 +1,42 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Radio } from "lucide-react";
 import { openLiveSocket, type LiveEvent } from "@/lib/api";
 
 type Props = {
-  matchId: string;
-  onSeatStatus?: (seatId: string, status: LiveEvent["status"]) => void;
+  matchId?: string | null;
+  onSeatStatus?: (seatId: string, status: "free" | "reserved" | "confirmed" | "locked") => void;
+  onReservationCount?: (count: number) => void;
   className?: string;
 };
 
-export function LiveStatus({ matchId, onSeatStatus, className }: Props) {
-  const [count, setCount] = useState(0);
+export function LiveStatus({ matchId, onSeatStatus, onReservationCount, className }: Props) {
+  const [reservationCount, setReservationCount] = useState<number | null>(null);
+  const onSeatStatusRef = useRef(onSeatStatus);
+  const onReservationCountRef = useRef(onReservationCount);
+  onSeatStatusRef.current = onSeatStatus;
+  onReservationCountRef.current = onReservationCount;
 
   useEffect(() => {
-    // Only connect with a valid UUID, not a slug
-    if (!matchId || !matchId.match(/^[0-9a-f]{8}-/)) return;
+    if (!matchId) return;
     let sock: WebSocket | null = null;
     try {
       sock = openLiveSocket(matchId, (ev) => {
-        setCount((n) => n + 1);
-        onSeatStatus?.(ev.seat_id, ev.status);
+        if (ev.type === "reservation_count") {
+          setReservationCount(ev.count);
+          onReservationCountRef.current?.(ev.count);
+        } else {
+          onSeatStatusRef.current?.(ev.seat_id, ev.status);
+        }
       });
     } catch {
-      // ignore, backend may be offline
+      // backend may be offline
     }
     return () => sock?.close();
-  }, [matchId, onSeatStatus]);
+  }, [matchId]);
+
+  const n = reservationCount ?? 0;
 
   return (
     <span
@@ -36,7 +46,7 @@ export function LiveStatus({ matchId, onSeatStatus, className }: Props) {
       }
     >
       <Radio size={12} className="animate-pulse" aria-hidden />
-      Live · {count}
+      Live · {n} r&eacute;serv{n > 1 ? "ations" : "ation"} en cours
     </span>
   );
 }

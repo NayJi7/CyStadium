@@ -1,7 +1,7 @@
 package cystadium.api
 
 import akka.NotUsed
-import akka.actor.{ActorSystem, CoordinatedShutdown}
+import akka.actor.{ActorRef, ActorSystem, CoordinatedShutdown}
 import akka.http.scaladsl.model.ws.{Message, TextMessage}
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
@@ -14,12 +14,22 @@ import io.circe.syntax._
 // ─────────────────────────────────────────────────────────────────────────────
 // WebSocketHandler — Adam
 // Expose GET /ws/matches/{matchId}/live
-// Écoute l'EventStream Akka (SeatStatusEvent) et forward chaque événement
-// concernant le match en JSON au client.
+// Écoute l'EventStream Akka (SeatStatusEvent + ReservationCountEvent)
+// et forward chaque événement concernant le match en JSON au client.
 //
 // Convention : les messages entrants du client sont ignorés (flux serveur→client
 // unidirectionnel).
 // ─────────────────────────────────────────────────────────────────────────────
+
+sealed trait LiveEvent {
+  def matchId: MatchId
+}
+case class SeatEventWrapper(event: SeatStatusEvent) extends LiveEvent {
+  def matchId: MatchId = event.matchId
+}
+case class ReservationEventWrapper(event: ReservationCountEvent) extends LiveEvent {
+  def matchId: MatchId = event.matchId
+}
 
 class WebSocketHandler(system: ActorSystem) {
 
@@ -40,17 +50,22 @@ class WebSocketHandler(system: ActorSystem) {
     val failure: PartialFunction[Any, Throwable] = PartialFunction.empty
 
     Source
-      .actorRef[SeatStatusEvent](
+      .actorRef[Any](
         completionMatcher = completion,
         failureMatcher    = failure,
-        bufferSize        = 64,
+        bufferSize        = 128,
         overflowStrategy  = OverflowStrategy.dropHead
       )
-      .mapMaterializedValue { ref =>
+      .mapMaterializedValue { ref: ActorRef =>
         system.eventStream.subscribe(ref, classOf[SeatStatusEvent])
+        system.eventStream.subscribe(ref, classOf[ReservationCountEvent])
         NotUsed
       }
-      .filter(_.matchId == matchId)
-      .map(ev => TextMessage(ev.asJson.noSpaces))
+      .collect {
+        case ev: SeatStatusEvent if ev.matchId == matchId =>
+          TextMessage(ev.asJson.noSpaces)
+        case ev: ReservationCountEvent if ev.matchId == matchId =>
+          TextMessage(ev.asJson.noSpaces)
+      }
   }
 }
