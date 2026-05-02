@@ -10,6 +10,10 @@ import {
   Radio,
   Ticket,
   Users,
+  Star,
+  Crown,
+  CircleDot,
+  Flame,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { api, ApiError, openLiveSocket, type LiveEvent, type MatchItem } from "@/lib/api";
@@ -20,6 +24,43 @@ type Zones = Record<string, number>;
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const ZONE_ORDER = ["VIP", "Or", "Standard", "Populaire"];
+
+const ZONE_STYLES: Record<string, {
+  gradient: string;
+  border: string;
+  glow: string;
+  icon: string;
+  badge: string;
+}> = {
+  VIP: {
+    gradient: "from-violet-400/20 via-purple-500/10 to-transparent",
+    border: "border-violet-400/30 hover:border-violet-300/60",
+    glow: "bg-violet-400/20",
+    icon: "text-violet-400",
+    badge: "bg-violet-400/15 text-violet-300",
+  },
+  Or: {
+    gradient: "from-yellow-300/15 via-orange-400/8 to-transparent",
+    border: "border-yellow-300/25 hover:border-yellow-200/50",
+    glow: "bg-yellow-300/15",
+    icon: "text-yellow-300",
+    badge: "bg-yellow-300/10 text-yellow-200",
+  },
+  Standard: {
+    gradient: "from-cyan-400/15 via-blue-500/8 to-transparent",
+    border: "border-cyan-400/25 hover:border-cyan-300/50",
+    glow: "bg-cyan-400/15",
+    icon: "text-cyan-400",
+    badge: "bg-cyan-400/10 text-cyan-300",
+  },
+  Populaire: {
+    gradient: "from-emerald-400/15 via-green-500/8 to-transparent",
+    border: "border-emerald-400/25 hover:border-emerald-300/50",
+    glow: "bg-emerald-400/15",
+    icon: "text-emerald-400",
+    badge: "bg-emerald-400/10 text-emerald-300",
+  },
+};
 
 export default function MatchDetailPage({ params }: { params: { id: string } }) {
   const [matchMeta, setMatchMeta] = useState<MatchItem | null>(null);
@@ -175,6 +216,8 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
             {ZONE_ORDER.filter((z) => z in zones).map((z, i) => {
               const n = zones[z];
               const sold = n === 0;
+              const style = ZONE_STYLES[z] ?? ZONE_STYLES.Standard!;
+              const ZoneIcon = z === "VIP" ? Star : z === "Or" ? Crown : z === "Standard" ? CircleDot : Flame;
               return (
                 <motion.div
                   key={z}
@@ -182,22 +225,33 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.5, delay: i * 0.08, ease: EASE }}
-                  className={`rounded-2xl border p-6 backdrop-blur-sm transition-all ${
+                  className={`group relative overflow-hidden rounded-2xl border p-6 backdrop-blur-sm transition-all ${
                     sold
-                      ? "border-white/5 bg-navy-900/40 text-white/40"
-                      : "border-white/10 bg-navy-900/60 hover:-translate-y-1 hover:border-cyan-400/40"
+                      ? "border-white/5 bg-navy-900/40"
+                      : `${style.border} bg-navy-900/60 hover:-translate-y-1`
                   }`}
                 >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-white/50">
-                      <Ticket size={12} /> Zone {z}
-                    </span>
+                  {!sold && (
+                    <div className={`absolute -right-10 -top-10 h-32 w-32 rounded-full ${style.glow} opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100`} />
+                  )}
+                  <div className={`absolute inset-0 bg-gradient-to-br ${style.gradient} opacity-0 transition-opacity duration-500 group-hover:opacity-100`} />
+
+                  <div className={`absolute inset-0 flex items-center justify-center translate-x-20 rotate-12 ${sold ? "opacity-[0.04]" : "opacity-[0.08] group-hover:opacity-[0.14]"} transition-opacity duration-500`}>
+                    <ZoneIcon size={120} className={style.icon} strokeWidth={0.8} />
                   </div>
-                  <div className="heading-display text-5xl tabular-nums">
-                    {n.toLocaleString("fr-FR")}
-                  </div>
-                  <div className="mt-1 text-xs text-white/50">
-                    {sold ? "Complet" : "places libres"}
+
+                  <div className="relative">
+                    <div className="mb-3 flex items-center justify-between">
+                      <span className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${sold ? "bg-white/5 text-white/30" : style.badge}`}>
+                        <Ticket size={10} /> Zone {z}
+                      </span>
+                    </div>
+                    <div className={`heading-display text-5xl tabular-nums ${sold ? "text-white/30" : "text-white"}`}>
+                      {n.toLocaleString("fr-FR")}
+                    </div>
+                    <div className={`mt-1 text-xs ${sold ? "text-white/20" : "text-white/50"}`}>
+                      {sold ? "Complet" : "places libres"}
+                    </div>
                   </div>
                 </motion.div>
               );

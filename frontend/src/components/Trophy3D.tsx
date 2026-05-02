@@ -223,12 +223,13 @@ function TrophyAura() {
 
 export function Trophy3D({ className, spinSpeed, spinSpeedRef, tiltRef, rollRef, scrollProgressRef }: Props) {
   return (
-    <div className={className}>
+    <div className={className} style={{ pointerEvents: "none" }}>
       <Canvas
         shadows
         dpr={[1, 2]}
         camera={{ position: [0, 0.3, 5.2], fov: 32 }}
         gl={{ antialias: true, alpha: true }}
+        style={{ pointerEvents: "none" }}
       >
         <ambientLight intensity={0.35} />
         <directionalLight

@@ -14,6 +14,8 @@ export function LiveStatus({ matchId, onSeatStatus, className }: Props) {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
+    // Only connect with a valid UUID, not a slug
+    if (!matchId || !matchId.match(/^[0-9a-f]{8}-/)) return;
     let sock: WebSocket | null = null;
     try {
       sock = openLiveSocket(matchId, (ev) => {
