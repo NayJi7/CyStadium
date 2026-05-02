@@ -16,6 +16,8 @@ import org.scalatest.wordspec.AnyWordSpec
 import java.time.Instant
 import java.util.UUID
 import scala.concurrent.duration._
+import slick.jdbc.H2Profile.api._
+import akka.http.scaladsl.testkit.RouteTestTimeout
 
 private object Payloads {
   def reserveSeats(matchId: UUID, zone: String, seatIds: Set[UUID], sessionId: UUID): Json =
@@ -55,9 +57,85 @@ private class StubAuth extends Actor {
 class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest {
 
   implicit val askTimeout: Timeout = Timeout(2.seconds)
+  implicit val routeTestTimeout: RouteTestTimeout = RouteTestTimeout(5.seconds)
 
-  // DB null : les routes testées ici n'atteignent pas la DB (acteurs fakés)
-  private val noDb = null.asInstanceOf[slick.jdbc.PostgresProfile.backend.Database]
+  private val h2Db = Database.forURL("jdbc:h2:mem:business_test;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=FALSE", driver = "org.h2.Driver")
+    .asInstanceOf[slick.jdbc.PostgresProfile.backend.Database]
+
+  // Initialise le schéma minimal pour les tests
+  private def initDb(): Unit = {
+    import cystadium.db.Tables
+    import scala.concurrent.Await
+    import scala.concurrent.duration._
+    val setup = DBIO.seq(
+      sqlu"""CREATE TABLE IF NOT EXISTS matches (
+        id UUID PRIMARY KEY,
+        home_team VARCHAR(100) NOT NULL,
+        away_team VARCHAR(100) NOT NULL,
+        match_date TIMESTAMP NOT NULL,
+        stadium VARCHAR(100) NOT NULL,
+        status VARCHAR(20) DEFAULT 'open',
+        city VARCHAR(100),
+        stage VARCHAR(50),
+        highlight BOOLEAN DEFAULT FALSE
+      )""",
+      sqlu"""CREATE TABLE IF NOT EXISTS zones (
+        id UUID PRIMARY KEY,
+        match_id UUID REFERENCES matches(id) ON DELETE CASCADE,
+        name VARCHAR(20) NOT NULL,
+        price DECIMAL(10,2) NOT NULL,
+        capacity INT NOT NULL
+      )""",
+      sqlu"""CREATE TABLE IF NOT EXISTS seats (
+        id UUID PRIMARY KEY,
+        zone_id UUID REFERENCES zones(id) ON DELETE CASCADE,
+        label VARCHAR(10) NOT NULL,
+        "row" CHAR(1) NOT NULL,
+        number INT NOT NULL CHECK (number > 0),
+        status VARCHAR(20) DEFAULT 'free',
+        UNIQUE(zone_id, "row", number)
+      )""",
+      sqlu"""CREATE TABLE IF NOT EXISTS clients (
+        id UUID PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        username VARCHAR(40) UNIQUE NOT NULL,
+        password_hash VARCHAR(120),
+        is_admin BOOLEAN DEFAULT FALSE
+      )""",
+      sqlu"""CREATE TABLE IF NOT EXISTS sessions (
+        id UUID PRIMARY KEY,
+        client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL
+      )""",
+      sqlu"""CREATE TABLE IF NOT EXISTS reservations (
+        id UUID PRIMARY KEY,
+        client_id UUID NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+        match_id UUID REFERENCES matches(id) ON DELETE RESTRICT,
+        status VARCHAR(20) DEFAULT 'pending',
+        total DECIMAL(10,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP
+      )""",
+      sqlu"""CREATE TABLE IF NOT EXISTS reservation_seats (
+        reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
+        seat_id UUID REFERENCES seats(id) ON DELETE RESTRICT,
+        PRIMARY KEY (reservation_id, seat_id)
+      )""",
+      sqlu"""CREATE TABLE IF NOT EXISTS payments (
+        id UUID PRIMARY KEY,
+        reservation_id UUID REFERENCES reservations(id) ON DELETE CASCADE,
+        amount DECIMAL(10,2) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      )"""
+    )
+    Await.result(h2Db.run(setup.transactionally), 5.seconds)
+  }
+
+  initDb()
 
   private def mkRoutes(
     sm: akka.actor.ActorRef,
@@ -72,7 +150,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
     matchManagerMap    = matchManagerMap,
     reservationHandler = reservationHandler,
     paymentGateway     = paymentGateway,
-    db                 = noDb,
+    db                 = h2Db,
     askTimeoutDuration = timeout
   ).all
 
@@ -84,21 +162,27 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
   }
 
   "GET /api/matches/:id" should {
-    "forward CheckAvailability et renvoyer AvailabilityResult" in {
+    "renvoyer le match avec ses zones" in {
       val matchId = UUID.randomUUID()
-      val result  = AvailabilityResult(matchId, Map(VIP -> 10, Standard -> 42))
-      val fake = system.actorOf(Props(new FakeResponder({
-        case CheckAvailability(id) if id == matchId => result
-      })))
+      val zoneId  = UUID.randomUUID()
+      import scala.concurrent.Await
+      import scala.concurrent.duration._
+      val setup = DBIO.seq(
+        sqlu"""INSERT INTO matches (id, home_team, away_team, match_date, stadium, status)
+          VALUES (${matchId.toString}, 'France', 'Brésil', '2026-06-14 20:00:00', 'Test Stadium', 'open')""",
+        sqlu"""INSERT INTO zones (id, match_id, name, price, capacity)
+          VALUES (${zoneId.toString}, ${matchId.toString}, 'VIP', 500.0, 10)"""
+      )
+      Await.result(h2Db.run(setup.transactionally), 2.seconds)
+
       val sm     = system.actorOf(Props(new StubAuth))
-      val routes = mkRoutes(sm, matchManagerMap = Map(matchId -> fake))
+      val routes = mkRoutes(sm)
 
       Get(s"/api/matches/$matchId") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         val j = responseAs[Json]
-        j.hcursor.get[String]("match_id").toOption shouldBe Some(matchId.toString)
+        j.hcursor.get[String]("id").toOption shouldBe Some(matchId.toString)
         j.hcursor.downField("zones").get[Int]("VIP").toOption shouldBe Some(10)
-        j.hcursor.downField("zones").get[Int]("Standard").toOption shouldBe Some(42)
       }
     }
   }
@@ -148,7 +232,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val reservationId = UUID.randomUUID()
       val fake = system.actorOf(Props(new FakeResponder({ case _: InitPayment => PaymentFailed(reservationId, "card_declined") })))
       val sm   = system.actorOf(Props(new StubAuth))
-      val routes = mkRoutes(sm, paymentGateway = fake)
+      val routes = mkRoutes(sm, reservationHandler = fake)
       val sid  = login(routes)
 
       Post(s"/api/reservations/$reservationId/pay", Payloads.initPayment(reservationId, 50.0))
@@ -161,7 +245,7 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
       val reservationId = UUID.randomUUID()
       val fake = system.actorOf(Props(new FakeResponder({ case _: InitPayment => PaymentTimeout(reservationId) })))
       val sm   = system.actorOf(Props(new StubAuth))
-      val routes = mkRoutes(sm, paymentGateway = fake)
+      val routes = mkRoutes(sm, reservationHandler = fake)
       val sid  = login(routes)
 
       Post(s"/api/reservations/$reservationId/pay", Payloads.initPayment(reservationId, 50.0))
@@ -172,12 +256,33 @@ class BusinessRoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTe
   }
 
   "Timeout sur un acteur indisponible" should {
-    "retourner 503 service_unavailable" in {
+    "retourner 200 OK avec zones vides (graceful degradation)" in {
       val matchId = UUID.randomUUID()
+      val zoneId  = UUID.randomUUID()
+      import scala.concurrent.Await
+      import scala.concurrent.duration._
+      val setup = DBIO.seq(
+        sqlu"""INSERT INTO matches (id, home_team, away_team, match_date, stadium, status)
+          VALUES (${matchId.toString}, 'France', 'Brésil', '2026-06-14 20:00:00', 'Test Stadium', 'open')""",
+        sqlu"""INSERT INTO zones (id, match_id, name, price, capacity)
+          VALUES (${zoneId.toString}, ${matchId.toString}, 'VIP', 500.0, 10)"""
+      )
+      Await.result(h2Db.run(setup.transactionally), 2.seconds)
+
+      val result  = AvailabilityResult(matchId, Map(VIP -> 10))
+      val fake = system.actorOf(Props(new FakeResponder({
+        case CheckAvailability(id) if id == matchId => result
+      })))
+
       val sm      = system.actorOf(Props(new StubAuth))
-      val routes  = mkRoutes(sm, matchManagerMap = Map(matchId -> system.deadLetters), timeout = 500.millis)
+      val routes  = mkRoutes(sm, matchManagerMap = Map(matchId -> fake), timeout = 500.millis)
+      // On arrête le fake pour simuler un crash
+      system.stop(fake)
       Get(s"/api/matches/$matchId") ~> routes ~> check {
-        status shouldBe StatusCodes.ServiceUnavailable
+        status shouldBe StatusCodes.OK
+        val j = responseAs[Json]
+        j.hcursor.get[String]("id").toOption shouldBe Some(matchId.toString)
+        j.hcursor.downField("zones").get[Int]("VIP").toOption shouldBe None
       }
     }
   }

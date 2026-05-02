@@ -25,6 +25,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.slick" %% "slick"          % slickVersion,
   "com.typesafe.slick" %% "slick-hikaricp" % slickVersion,
   "org.postgresql"      % "postgresql"     % "42.7.3",
+  "com.h2database"      % "h2"             % "2.2.224" % Test,
 
   // ── Config ────────────────────────────────────────────────────────────────
   "com.typesafe" % "config" % "1.4.3",

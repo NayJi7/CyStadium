@@ -220,6 +220,7 @@ final class ReservationHandlerSpec
   private final class Fixture {
     val sessionManager: TestProbe = TestProbe()
     val seatAllocator: TestProbe = TestProbe()
+    val paymentGateway: TestProbe = TestProbe()
     val seatA: TestProbe = TestProbe()
     val seatB: TestProbe = TestProbe()
     val repository = new RecordingRepository
@@ -233,6 +234,8 @@ final class ReservationHandlerSpec
     private val resolver = new SeatRefResolver {
       override def resolve(matchId: MatchId, zone: Zone, seatIds: Set[SeatId]): Map[SeatId, ActorRef] =
         Map(seatAId -> seatA.ref, seatBId -> seatB.ref).filter { case (seatId, _) => seatIds.contains(seatId) }
+      override def resolveAll(matchId: MatchId, seatIds: Set[SeatId]): (Map[SeatId, ActorRef], Map[SeatId, Zone]) =
+        (resolve(matchId, VIP, seatIds), seatIds.map(_ -> VIP).toMap)
     }
 
     def handler(): ActorRef =
@@ -240,6 +243,7 @@ final class ReservationHandlerSpec
         ReservationHandler.props(
           sessionManager = sessionManager.ref,
           seatAllocator = seatAllocator.ref,
+          paymentGateway = paymentGateway.ref,
           seatRefResolver = resolver,
           repository = repository,
           reservationTtl = 10.minutes,

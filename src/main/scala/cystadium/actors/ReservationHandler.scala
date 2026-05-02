@@ -185,7 +185,7 @@ object ReservationHandler {
 
     private def allocatingSeats: Receive = {
       case AllocationSucceeded(_, _, succeededBookingId, seatIds) if succeededBookingId == bookingId =>
-        val total = seatIds.map { id =>
+        val total = seatIds.toList.map { id =>
           pricing(seatZones.getOrElse(id, request.zone))
         }.sum
         val record = ReservationRecord(

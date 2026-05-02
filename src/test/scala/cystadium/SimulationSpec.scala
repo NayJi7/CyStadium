@@ -215,6 +215,8 @@ final class SimulationSpec
     private val resolver = new SeatRefResolver {
       override def resolve(matchId: MatchId, zone: Zone, seatIds: Set[SeatId]): Map[SeatId, ActorRef] =
         seats.filter { case (seatId, _) => seatIds.contains(seatId) }
+      override def resolveAll(matchId: MatchId, seatIds: Set[SeatId]): (Map[SeatId, ActorRef], Map[SeatId, Zone]) =
+        (resolve(matchId, VIP, seatIds), seatIds.map(_ -> VIP).toMap)
     }
 
     val handler: ActorRef =
@@ -222,6 +224,7 @@ final class SimulationSpec
         ReservationHandler.props(
           sessionManager = sessionManager,
           seatAllocator = seatAllocator,
+          paymentGateway = system.deadLetters,
           seatRefResolver = resolver,
           reservationTtl = reservationTtl,
           responseTimeout = 500.millis
